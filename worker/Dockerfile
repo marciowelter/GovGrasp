@@ -1,0 +1,32 @@
+# Usa a imagem oficial slim do Python 3.11
+FROM python:3.11-slim
+
+# Impede o Python de gravar arquivos .pyc e de fazer buffer no log (melhor para CloudWatch)
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Define o diretório de trabalho
+WORKDIR /app
+
+# Cria um usuário não-root por segurança
+RUN addgroup --system worker && adduser --system --group worker
+
+# Copia os requisitos primeiro (para aproveitar o cache do Docker)
+COPY requirements.txt .
+
+# Atualiza o pip e instala dependências
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# Copia o restante do código
+COPY . .
+
+# Ajusta permissões
+RUN chown -R worker:worker /app
+
+# Troca para o usuário seguro
+USER worker
+
+# O comando de execução dependerá de como o Open Claw é disparado
+# Por padrão, vamos assumir um script principal
+CMD ["python", "main.py"]

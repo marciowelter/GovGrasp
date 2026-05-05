@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------
+  # Database (Simulates Amazon RDS)
+  # ---------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: govgrasp_db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-govgrasp}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - govgrasp_network
+
+  # ---------------------------------------------
+  # Backend API (Laravel)
+  # ---------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: govgrasp_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_CONNECTION=pgsql
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_DATABASE=${DB_DATABASE:-govgrasp}
+      - DB_USERNAME=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+    volumes:
+      - ./backend:/var/www/html # Live reload do código
+    depends_on:
+      - db
+    networks:
+      - govgrasp_network
+    command: sh -c "composer install && php artisan serve --host=0.0.0.0 --port=8000"
+
+  # ---------------------------------------------
+  # Worker AI (Python)
+  # ---------------------------------------------
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: govgrasp_worker
+    restart: unless-stopped
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_DATABASE:-govgrasp}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - OPEN_CLAW_API_KEY=${OPEN_CLAW_API_KEY}
+    volumes:
+      - ./worker:/app # Live reload of the code
+    depends_on:
+      - db
+    networks:
+      - govgrasp_network
+    # Command simulating the Worker sleeping and waking up, you will change this to your real script
+    command: tail -f /dev/null 
+
+volumes:
+  postgres_data:
+
+networks:
+  govgrasp_network:
+    driver: bridge

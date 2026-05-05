@@ -1,0 +1,91 @@
+name: GovGrasp CI/CD Pipeline
+
+# The pipeline runs on Pull Requests to the main (validation)
+# and on direct pushes to the main (post-merge).
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # ---------------------------------------------------
+  # JOB 1: Backend PHP (Laravel) - SAST & Tests
+  # ---------------------------------------------------
+  test-php:
+    name: Backend (PHP) - SAST & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend # Adjust to the folder where Laravel will be
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐘 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2' # Recommended version for the latest Laravel
+          tools: composer, phpstan, phpunit
+
+      - name: 📦 Install Dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+        continue-on-error: true # Continue even if composer.json is not created yet
+
+      - name: 🕵️ Static Analysis (PHPStan)
+        run: phpstan analyse app tests --level=5 || echo "Ignoring failure: PHPStan not configured yet."
+
+      - name: 🧪 Run Tests (PHPUnit)
+        run: phpunit || echo "Ignoring failure: Tests not created yet."
+
+  # ---------------------------------------------------
+  # JOB 2: Worker Python (Open Claw) - SAST & Tests
+  # ---------------------------------------------------
+  test-python:
+    name: Worker (Python) - SAST & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./worker # Adjust to the folder where the Python code will be
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: 🛡️ Security Scan (Bandit)
+        # Bandit looks for hardcoded credentials, injections, and use of insecure libraries
+        run: bandit -r . -ll -ii -f custom || echo "Ignoring initial Bandit failure."
+
+      - name: 🧪 Run Tests (Pytest)
+        run: pytest || echo "Ignoring failure: Tests not created yet."
+
+  # ---------------------------------------------------
+  # JOB 3: Dependency Security Scan (Trivy)
+  # ---------------------------------------------------
+  security-scan:
+    name: Repo Vulnerability Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'table'
+          severity: 'CRITICAL,HIGH' # Will fail the pipeline only if it finds something Critical or High

@@ -1,0 +1,46 @@
+# .pre-commit-config.yaml
+
+repos:
+  # ---------------------------------------------------
+  # 🧹 Basic File Cleanup and Standardization
+  # ---------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files # Prevent committing large files
+
+  # ---------------------------------------------------
+  # 🛡️ SECURITY (DevSecOps): Secret Hunter
+  # ---------------------------------------------------
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        # Ignore lock files where hashes may look like secrets
+        exclude: package\.lock\.json|yarn\.lock|composer\.lock
+
+  # ---------------------------------------------------
+  # 🐍 PYTHON (Worker): Formatting and Linting (Ruff)
+  # ---------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.5
+    hooks:
+      # Runs the linter and automatically fixes simple errors
+      - id: ruff
+        args: [ --fix ]
+      # Formats the code (replaces Black)
+      - id: ruff-format
+
+  # ---------------------------------------------------
+  # 🐘 PHP (Backend Laravel): Formatting (PHP-CS-Fixer)
+  # ---------------------------------------------------
+  - repo: https://github.com/FriendsOfPHP/PHP-CS-Fixer
+    rev: v3.52.1
+    hooks:
+      - id: php-cs-fixer
+        # Requires a .php-cs-fixer.dist.php configuration file in the backend root
+        args: ["--config=backend/.php-cs-fixer.dist.php", "--allow-risky=yes"]

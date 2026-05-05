@@ -1,0 +1,19 @@
+{
+  "recommendations": [
+    // Cloud and Infrastructure
+    "amazonwebservices.aws-toolkit-vscode",
+    "hashicorp.terraform",
+    "ms-azuretools.vscode-docker",
+    "ms-vscode-remote.remote-containers",
+
+    // Security (DevSecOps)
+    "sonarsource.sonarlint-vscode",
+
+    // Python (Worker)
+    "ms-python.python",
+    "charliermarsh.ruff",
+
+    // PHP (Backend)
+    "bmewburn.vscode-intelephense-client"
+  ]
+}

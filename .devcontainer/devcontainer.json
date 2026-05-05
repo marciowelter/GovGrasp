@@ -1,0 +1,21 @@
+{
+    "name": "GovGrasp Backend Workspace",
+    "dockerComposeFile": [
+        "../docker-compose.yml"
+    ],
+    "service": "backend",
+    "workspaceFolder": "/var/www/html",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "bmewburn.vscode-intelephense-client",
+                "sonarsource.sonarlint-vscode"
+            ],
+            "settings": {
+                "php.validate.executablePath": "/usr/local/bin/php"
+            }
+        }
+    },
+    // Install composer packages automatically when the container starts
+    "postCreateCommand": "composer install"
+}

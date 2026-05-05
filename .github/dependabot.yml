@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Check Composer dependencies (PHP)
+  - package-ecosystem: "composer"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  # Check Pip dependencies (Python)
+  - package-ecosystem: "pip"
+    directory: "/worker"
+    schedule:
+      interval: "weekly"
+
+  # Keep GitHub Actions (like trivy-action) up to date
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
