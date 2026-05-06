@@ -38,9 +38,12 @@ repos:
   # ---------------------------------------------------
   # 🐘 PHP (Backend Laravel): Formatting (PHP-CS-Fixer)
   # ---------------------------------------------------
-  - repo: https://github.com/FriendsOfPHP/PHP-CS-Fixer
-    rev: v3.52.1
+  - repo: local
     hooks:
       - id: php-cs-fixer
-        # Requires a .php-cs-fixer.dist.php configuration file in the backend root
-        args: ["--config=backend/.php-cs-fixer.dist.php", "--allow-risky=yes"]
+        name: PHP CS Fixer
+        language: system
+        entry: backend/vendor/bin/php-cs-fixer
+        args: ["fix", "--config=backend/.php-cs-fixer.dist.php", "--allow-risky=yes"]
+        files: \.php$
+        pass_filenames: false
