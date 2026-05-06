@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ---------------------------------------------
   # Database (Simulates Amazon RDS)
@@ -68,7 +66,7 @@ services:
     networks:
       - govgrasp_network
     # Command simulating the Worker sleeping and waking up, you will change this to your real script
-    command: tail -f /dev/null 
+    command: tail -f /dev/null
 
 volumes:
   postgres_data:

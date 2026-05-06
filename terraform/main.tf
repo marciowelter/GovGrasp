@@ -10,14 +10,15 @@ terraform {
     }
   }
 
-  # Configuração recomendada para produção: Estado remoto no S3
-  # backend "s3" {
-  #   bucket         = "govgrasp-terraform-state-bucket"
-  #   key            = "global/s3/terraform.tfstate"
-  #   region         = "eu-west-2" # Região de Londres (próximo à origem dos dados)
-  #   dynamodb_table = "govgrasp-terraform-locks"
-  #   encrypt        = true
-  # }
+  # Estado remoto no S3 com lock via DynamoDB e criptografia habilitada.
+  # Substitua o valor de 'bucket' pelo nome real do seu bucket antes de usar.
+  backend "s3" {
+    bucket         = "govgrasp-terraform-state-bucket"
+    key            = "global/s3/terraform.tfstate"
+    region         = "eu-west-2"
+    dynamodb_table = "govgrasp-terraform-locks"
+    encrypt        = true
+  }
 }
 
 # Configuração do provedor AWS

@@ -1,5 +1,5 @@
 # Usa a versão Alpine do PHP 8.2 (mais leve e segura)
-FROM php:8.2-fpm-alpine
+FROM php:8.4-fpm-alpine
 
 # Argumentos para criar usuário não-root (DevSecOps)
 ARG UID=1000

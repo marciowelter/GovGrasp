@@ -30,6 +30,7 @@ resource "aws_iam_role_policy_attachment" "ecs_exec_standard" {
 }
 
 # Custom policy to allow fetching secrets from Secrets Manager
+# Restricted to the specific secret ARN (least privilege)
 resource "aws_iam_role_policy" "ecs_exec_secrets" {
   name = "govgrasp-secrets-access"
   role = aws_iam_role.ecs_exec_role.id
@@ -39,7 +40,7 @@ resource "aws_iam_role_policy" "ecs_exec_secrets" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = ["*"] # Ideally restrict to the specific Secret ARN
+      Resource = [aws_secretsmanager_secret.govgrasp_app_secrets.arn]
     }]
   })
 }
@@ -62,14 +63,14 @@ resource "aws_ecs_task_definition" "backend" {
       image     = var.container_image_backend
       essential = true
       portMappings = [{ containerPort = 80, hostPort = 80 }]
-      
+
       secrets = [
         {
           name      = "DB_PASSWORD"
           valueFrom = "${aws_secretsmanager_secret.govgrasp_app_secrets.arn}:DB_PASSWORD::"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -97,14 +98,14 @@ resource "aws_ecs_task_definition" "worker" {
       name      = "python-worker"
       image     = var.container_image_worker
       essential = true
-      
+
       secrets = [
         {
           name      = "OPEN_CLAW_API_KEY"
           valueFrom = "${aws_secretsmanager_secret.govgrasp_app_secrets.arn}:OPEN_CLAW_API_KEY::"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -136,7 +137,7 @@ resource "aws_ecs_service" "backend" {
     container_name   = "laravel-app" # O nome definido na task_definition
     container_port   = 80
   }
-  
+
   # Ignora mudanças manuais na quantidade de tarefas (útil se adicionar Auto Scaling depois)
   lifecycle {
     ignore_changes = [desired_count]
