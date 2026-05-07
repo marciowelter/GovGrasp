@@ -8,6 +8,18 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
+# --- CloudWatch Log Groups ---
+
+resource "aws_cloudwatch_log_group" "backend" {
+  name              = "/ecs/govgrasp-backend"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "worker" {
+  name              = "/ecs/govgrasp-worker"
+  retention_in_days = 30
+}
+
 # --- IAM Roles ---
 
 # 1. Execution Role: Used by the ECS Agent to pull images and fetch secrets
@@ -55,26 +67,47 @@ resource "aws_ecs_task_definition" "backend" {
   cpu                      = 256
   memory                   = 512
   execution_role_arn       = aws_iam_role.ecs_exec_role.arn
-  task_role_arn            = aws_iam_role.ecs_task_role.arn # Defined in previous steps
+  task_role_arn            = aws_iam_role.ecs_task_role.arn
 
   container_definitions = jsonencode([
     {
       name      = "laravel-app"
       image     = var.container_image_backend
       essential = true
-      portMappings = [{ containerPort = 80, hostPort = 80 }]
+
+      # php artisan serve is the entrypoint; Dockerfile uses php-fpm as default CMD
+      command = ["php", "artisan", "serve", "--host=0.0.0.0", "--port=80"]
+
+      portMappings = [{ containerPort = 80, hostPort = 80, protocol = "tcp" }]
+
+      environment = [
+        { name = "APP_ENV",       value = var.environment },
+        { name = "APP_DEBUG",     value = var.environment == "production" ? "false" : "true" },
+        { name = "LOG_CHANNEL",   value = "stderr" },
+        { name = "DB_CONNECTION", value = "pgsql" },
+        { name = "DB_HOST",       value = aws_db_instance.postgres.address },
+        { name = "DB_PORT",       value = "5432" },
+        { name = "DB_DATABASE",   value = var.db_name },
+        { name = "DB_USERNAME",   value = var.db_username },
+        { name = "S3_BUCKET",     value = aws_s3_bucket.data.bucket },
+        { name = "AWS_DEFAULT_REGION", value = var.aws_region },
+      ]
 
       secrets = [
         {
           name      = "DB_PASSWORD"
-          valueFrom = "${aws_secretsmanager_secret.govgrasp_app_secrets.arn}:DB_PASSWORD::"
+          valueFrom = "${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::"
+        },
+        {
+          name      = "APP_KEY"
+          valueFrom = "${aws_secretsmanager_secret.govgrasp_app_secrets.arn}:APP_KEY::"
         }
       ]
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/govgrasp-backend"
+          "awslogs-group"         = aws_cloudwatch_log_group.backend.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
@@ -99,7 +132,20 @@ resource "aws_ecs_task_definition" "worker" {
       image     = var.container_image_worker
       essential = true
 
+      environment = [
+        { name = "DB_HOST",            value = aws_db_instance.postgres.address },
+        { name = "DB_PORT",            value = "5432" },
+        { name = "DB_NAME",            value = var.db_name },
+        { name = "DB_USER",            value = var.db_username },
+        { name = "S3_BUCKET_DATA",     value = aws_s3_bucket.data.bucket },
+        { name = "AWS_DEFAULT_REGION", value = var.aws_region },
+      ]
+
       secrets = [
+        {
+          name      = "DB_PASSWORD"
+          valueFrom = "${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::"
+        },
         {
           name      = "OPEN_CLAW_API_KEY"
           valueFrom = "${aws_secretsmanager_secret.govgrasp_app_secrets.arn}:OPEN_CLAW_API_KEY::"
@@ -109,7 +155,7 @@ resource "aws_ecs_task_definition" "worker" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/govgrasp-worker"
+          "awslogs-group"         = aws_cloudwatch_log_group.worker.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
@@ -129,7 +175,7 @@ resource "aws_ecs_service" "backend" {
   network_configuration {
     subnets          = var.private_subnets
     security_groups  = [aws_security_group.ecs_tasks_sg.id]
-    assign_public_ip = false # Fargate em sub-rede privada não tem IP público
+    assign_public_ip = var.tasks_assign_public_ip
   }
 
   load_balancer {

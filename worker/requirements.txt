@@ -1,8 +1,6 @@
-# HTTP & scraping
+# HTTP & APIs
 requests==2.32.3
 httpx==0.28.1
-beautifulsoup4==4.13.4
-lxml==5.4.0
 
 # Database
 psycopg2-binary==2.9.10
@@ -11,14 +9,19 @@ sqlalchemy==2.0.41
 # Environment & config
 python-dotenv==1.1.0
 
-# Scheduling
-schedule==1.2.2
-
 # Data processing
-pandas==2.2.3
-
-# Retry logic
 tenacity==9.1.2
 
 # Logging
 structlog==25.3.0
+
+# AI / LLM (OpenAI-compatible — works with Open Claw or any compatible provider)
+openai==1.82.0
+
+# AWS SDK (S3 raw JSON storage)
+boto3==1.38.10
+
+# HTTP server for trigger endpoint
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+pydantic==2.11.4

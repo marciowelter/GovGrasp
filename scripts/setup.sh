@@ -230,6 +230,203 @@ install_hooks() {
 }
 
 # --------------------------------------------------------------------------
+# 11. Bootstrap Laravel (key:generate + migrate)
+# --------------------------------------------------------------------------
+bootstrap_laravel() {
+  info "Waiting for backend container to be ready..."
+  cd "$REPO_ROOT"
+
+  # Ensure containers are up
+  if ! docker compose ps --status running | grep -q "govgrasp_backend"; then
+    info "Starting containers..."
+    docker compose up -d
+    # Wait until the backend container is healthy/running
+    local retries=20
+    while [[ $retries -gt 0 ]]; do
+      if docker compose ps --status running | grep -q "govgrasp_backend"; then
+        break
+      fi
+      sleep 3
+      retries=$((retries - 1))
+    done
+    [[ $retries -eq 0 ]] && error "Backend container did not start in time."
+  fi
+
+  info "Generating Laravel application key..."
+  docker compose exec -T backend php artisan key:generate
+  success "Laravel application key generated"
+
+  info "Running database migrations..."
+  docker compose exec -T backend php artisan migrate --force
+  success "Database migrations applied"
+}
+
+# --------------------------------------------------------------------------
+# 12. Prepare AWS resources (Terraform state, ECR, VPC discovery, build+push)
+#     Skipped automatically if AWS CLI is not configured.
+# --------------------------------------------------------------------------
+setup_aws_resources() {
+  if ! command -v aws &>/dev/null; then
+    warn "AWS CLI not found — skipping AWS setup."
+    return
+  fi
+
+  if ! aws sts get-caller-identity &>/dev/null 2>&1; then
+    warn "AWS credentials not configured. Run 'aws configure' and re-run this step."
+    return
+  fi
+
+  local region
+  region=$(aws configure get region 2>/dev/null || echo "eu-west-2")
+  local account_id
+  account_id=$(aws sts get-caller-identity --query Account --output text)
+
+  info "AWS account: $account_id | region: $region"
+
+  # --- Terraform remote state: S3 bucket + DynamoDB table ---
+  local state_bucket="govgrasp-terraform-state-${account_id}"
+  if ! aws s3api head-bucket --bucket "$state_bucket" --region "$region" &>/dev/null 2>&1; then
+    info "Creating Terraform state bucket: $state_bucket ..."
+    aws s3api create-bucket \
+      --bucket "$state_bucket" \
+      --region "$region" \
+      $( [[ "$region" != "us-east-1" ]] && echo "--create-bucket-configuration LocationConstraint=$region" ) \
+      --output text >/dev/null
+    aws s3api put-bucket-versioning \
+      --bucket "$state_bucket" \
+      --versioning-configuration Status=Enabled
+    aws s3api put-bucket-encryption \
+      --bucket "$state_bucket" \
+      --server-side-encryption-configuration \
+        '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"aws:kms"},"BucketKeyEnabled":true}]}'
+    aws s3api put-public-access-block \
+      --bucket "$state_bucket" \
+      --public-access-block-configuration \
+        "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+    success "Terraform state bucket created: $state_bucket"
+  else
+    success "Terraform state bucket already exists: $state_bucket"
+  fi
+
+  local lock_table="govgrasp-terraform-locks"
+  if ! aws dynamodb describe-table --table-name "$lock_table" --region "$region" &>/dev/null 2>&1; then
+    info "Creating DynamoDB lock table: $lock_table ..."
+    aws dynamodb create-table \
+      --table-name "$lock_table" \
+      --attribute-definitions AttributeName=LockID,AttributeType=S \
+      --key-schema AttributeName=LockID,KeyType=HASH \
+      --billing-mode PAY_PER_REQUEST \
+      --region "$region" >/dev/null
+    success "DynamoDB lock table created: $lock_table"
+  else
+    success "DynamoDB lock table already exists: $lock_table"
+  fi
+
+  # Update main.tf bucket name to the real one
+  sed -i "s|bucket *= *\"govgrasp-terraform-state-bucket\"|bucket         = \"${state_bucket}\"|" \
+    "$REPO_ROOT/terraform/main.tf"
+  sed -i "s|region *= *\"eu-west-2\"|region         = \"${region}\"|g" \
+    "$REPO_ROOT/terraform/main.tf"
+
+  # --- Discover Default VPC ---
+  local vpc_id
+  vpc_id=$(aws ec2 describe-vpcs \
+    --filters Name=isDefault,Values=true \
+    --query 'Vpcs[0].VpcId' \
+    --output text \
+    --region "$region" 2>/dev/null)
+
+  if [[ "$vpc_id" == "None" || -z "$vpc_id" ]]; then
+    warn "No default VPC found. You will need to set vpc_id, private_subnets, and public_subnets manually in terraform/terraform.tfvars."
+    vpc_id="REPLACE_WITH_YOUR_VPC_ID"
+    subnets_hcl='["REPLACE_WITH_SUBNET_ID_1", "REPLACE_WITH_SUBNET_ID_2"]'
+  else
+    success "Discovered default VPC: $vpc_id"
+    # All subnets in the default VPC are public (no NAT Gateway)
+    local subnets_raw
+    subnets_raw=$(aws ec2 describe-subnets \
+      --filters "Name=vpc-id,Values=${vpc_id}" "Name=defaultForAz,Values=true" \
+      --query 'Subnets[*].SubnetId' \
+      --output text \
+      --region "$region" 2>/dev/null)
+    local subnets_hcl
+    subnets_hcl=$(echo "$subnets_raw" | tr '\t' '\n' | awk '{printf "\"%s\", ", $0}' | sed 's/, $//')
+    subnets_hcl="[${subnets_hcl}]"
+    success "Subnets: $subnets_hcl"
+  fi
+
+  # --- ECR repositories ---
+  for repo in govgrasp-backend govgrasp-worker; do
+    if aws ecr describe-repositories --repository-names "$repo" --region "$region" &>/dev/null 2>&1; then
+      success "ECR repository already exists: $repo"
+    else
+      aws ecr create-repository \
+        --repository-name "$repo" \
+        --image-scanning-configuration scanOnPush=true \
+        --encryption-configuration encryptionType=AES256 \
+        --region "$region" >/dev/null
+      success "ECR repository created: $repo"
+    fi
+  done
+
+  # --- Build and push Docker images ---
+  local ecr_host="${account_id}.dkr.ecr.${region}.amazonaws.com"
+  info "Logging into ECR ($ecr_host)..."
+  aws ecr get-login-password --region "$region" | \
+    docker login --username AWS --password-stdin "$ecr_host"
+
+  for service in backend worker; do
+    local image_uri="${ecr_host}/govgrasp-${service}:latest"
+    info "Building govgrasp-${service}..."
+    docker build -t "govgrasp-${service}:latest" "$REPO_ROOT/${service}"
+    docker tag "govgrasp-${service}:latest" "$image_uri"
+    info "Pushing govgrasp-${service}..."
+    docker push "$image_uri"
+    success "Pushed: $image_uri"
+  done
+
+  local backend_image="${ecr_host}/govgrasp-backend:latest"
+  local worker_image="${ecr_host}/govgrasp-worker:latest"
+
+  # --- Generate terraform.tfvars (only if it doesn't exist) ---
+  local tfvars="$REPO_ROOT/terraform/terraform.tfvars"
+  if [[ -f "$tfvars" ]]; then
+    warn "terraform/terraform.tfvars already exists — skipping generation."
+  else
+    cat > "$tfvars" <<EOF
+# Auto-generated by setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Review and adjust before running terraform apply.
+
+aws_region              = "${region}"
+environment             = "production"
+
+vpc_id          = "${vpc_id}"
+private_subnets = ${subnets_hcl}   # Default VPC: same subnets are public
+public_subnets  = ${subnets_hcl}
+
+# true  → required when using the Default VPC (tasks need a public IP to reach ECR/internet)
+# false → use when you have private subnets with a NAT Gateway
+tasks_assign_public_ip = true
+
+# Optional: leave empty to use HTTP on the ALB + CloudFront's own HTTPS domain.
+# Fill in to enable HTTPS on your custom domain (cert must be in ACM, same region as ALB).
+acm_certificate_arn = ""
+
+container_image_backend = "${backend_image}"
+container_image_worker  = "${worker_image}"
+
+db_instance_class = "db.t3.micro"
+db_name           = "govgrasp"
+db_username       = "govgrasp_admin"
+EOF
+    success "terraform/terraform.tfvars created"
+  fi
+
+  echo ""
+  info "Next: cd terraform && terraform init && terraform plan -var-file=terraform.tfvars"
+}
+
+# --------------------------------------------------------------------------
 # Run all steps
 # --------------------------------------------------------------------------
 install_base
@@ -241,6 +438,8 @@ install_tflint
 install_python_tools
 setup_env
 install_hooks
+bootstrap_laravel
+setup_aws_resources
 
 echo ""
 echo "=============================================="

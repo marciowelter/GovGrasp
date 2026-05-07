@@ -8,6 +8,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Define o diretório de trabalho
 WORKDIR /app
 
+# Instala dependências de sistema necessárias para psycopg2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev gcc \
+    && rm -rf /var/lib/apt/lists/*
+
 # Cria um usuário não-root por segurança
 RUN addgroup --system worker && adduser --system --group worker
 
@@ -27,6 +32,6 @@ RUN chown -R worker:worker /app
 # Troca para o usuário seguro
 USER worker
 
-# O comando de execução dependerá de como o Open Claw é disparado
-# Por padrão, vamos assumir um script principal
-CMD ["python", "main.py"]
+EXPOSE 8001
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

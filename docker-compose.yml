@@ -34,9 +34,10 @@ services:
       - DB_PORT=5432
       - DB_DATABASE=${DB_DATABASE:-govgrasp}
       - DB_USERNAME=${DB_USER:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - DB_PASSWORD=${DB_PASSWORD:-change_me_in_production}
+      - WORKER_URL=http://worker:8001
     volumes:
-      - ./backend:/var/www/html # Live reload do código
+      - ./backend:/var/www/html
     depends_on:
       - db
     networks:
@@ -44,7 +45,7 @@ services:
     command: sh -c "composer install && php artisan serve --host=0.0.0.0 --port=8000"
 
   # ---------------------------------------------
-  # Worker AI (Python)
+  # Worker AI (Python + Open Claw)
   # ---------------------------------------------
   worker:
     build:
@@ -52,21 +53,45 @@ services:
       dockerfile: Dockerfile
     container_name: govgrasp_worker
     restart: unless-stopped
+    ports:
+      - "8001:8001"
     environment:
       - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=${DB_DATABASE:-govgrasp}
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD:-secret}
-      - OPEN_CLAW_API_KEY=${OPEN_CLAW_API_KEY}
+      - OPEN_CLAW_API_KEY=${OPEN_CLAW_API_KEY:-}
+      - OPEN_CLAW_BASE_URL=${OPEN_CLAW_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - S3_BUCKET_DATA=${S3_BUCKET_DATA:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-2}
+      - SCHEDULE_HOURS=${SCHEDULE_HOURS:-12}
     volumes:
-      - ./worker:/app # Live reload of the code
+      - ./worker:/app
     depends_on:
       - db
     networks:
       - govgrasp_network
-    # Command simulating the Worker sleeping and waking up, you will change this to your real script
-    command: tail -f /dev/null
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+  # ---------------------------------------------
+  # Frontend React (local dev server)
+  # ---------------------------------------------
+  frontend:
+    image: node:20-alpine
+    container_name: govgrasp_frontend
+    restart: unless-stopped
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
+    volumes:
+      - ./frontend:/app
+    networks:
+      - govgrasp_network
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
 
 volumes:
   postgres_data:

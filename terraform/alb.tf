@@ -68,7 +68,7 @@ resource "aws_lb_target_group" "backend_tg" {
   target_type = "ip" # Required for Fargate
 
   health_check {
-    path                = "/health" # Ensure your Laravel app has this route
+    path                = "/up"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
@@ -76,24 +76,32 @@ resource "aws_lb_target_group" "backend_tg" {
   }
 }
 
-# 4. Listener HTTP (porta 80) — redireciona obrigatoriamente para HTTPS
+# 4. Listener HTTP (porta 80)
+#    - If no ACM certificate is provided: forwards directly to the backend (HTTP only)
+#    - If an ACM certificate is provided: redirects to HTTPS
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    type             = var.acm_certificate_arn != "" ? "redirect" : "forward"
+    target_group_arn = var.acm_certificate_arn == "" ? aws_lb_target_group.backend_tg.arn : null
+
+    dynamic "redirect" {
+      for_each = var.acm_certificate_arn != "" ? [1] : []
+      content {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
     }
   }
 }
 
-# 5. Listener HTTPS (porta 443) — requer certificado ACM
+# 5. Listener HTTPS (porta 443) — only created when an ACM certificate ARN is provided
 resource "aws_lb_listener" "https" {
+  count             = var.acm_certificate_arn != "" ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
