@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\Schema;
 return new class () extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('worker_runs')) {
+            return;
+        }
+
         Schema::create('worker_runs', function (Blueprint $table) {
             $table->id();
             $table->string('status', 50)->default('running')->index();
