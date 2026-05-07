@@ -10,7 +10,7 @@ graph TD
     User([Users / Sales Team])
     CloudWatch([Amazon CloudWatch Events / Cron])
     ContractsAPI([UK Contracts Finder API])
-    
+
     %% Edge and Frontend
     subgraph "AWS Edge & Frontend"
         CF[CloudFront CDN]
@@ -20,12 +20,13 @@ graph TD
     %% Backend and Processing (Private VPC)
     subgraph "AWS Cloud - Private VPC (ECS Cluster)"
         API_Laravel[Backend: PHP Laravel API\nECS Fargate]
-        Worker_Python[Worker/AI: Python & Open Claw\nECS Fargate]
+        Worker_Python[Worker/AI: Python & Ollama client\nECS Fargate]
+        Ollama[LLM Server: Ollama\nLLaMA 3.1 8B\nECS Fargate]
     end
 
     %% Data Storage
     subgraph "Data Storage"
-        RDS[(Amazon RDS\nPostgreSQL/MySQL)]
+        RDS[(Amazon RDS\nPostgreSQL)]
         S3_Data[S3 Bucket: Files, JSON and Logs]
         Secrets[AWS Secrets Manager]
     end
@@ -34,17 +35,18 @@ graph TD
     User -->|Accesses interface| CF
     CF -->|Serves static assets| S3_Web
     User -->|API Requests| API_Laravel
-    
+
     CloudWatch -->|Triggers every 12h| Worker_Python
     API_Laravel -.->|On-demand trigger| Worker_Python
-    
+
     Worker_Python -->|Fetches data| ContractsAPI
     Worker_Python -->|Stores raw JSON & logs| S3_Data
     Worker_Python -->|Saves qualified opportunities| RDS
-    
+    Worker_Python -->|LLM inference requests| Ollama
+
     API_Laravel -->|Reads data for interface| RDS
-    
-    Worker_Python -.->|Reads API/LLM keys| Secrets
+
+    Worker_Python -.->|Reads DB credentials| Secrets
     API_Laravel -.->|Reads DB credentials| Secrets
 ```
 
@@ -67,13 +69,16 @@ The ADRs document the reasoning behind our choice of specific tools and technolo
   * Excellent maintainability and a very high productivity curve for traditional business rules (configuration CRUDs, email/WhatsApp dispatch queues).
   * Fits perfectly within a Docker container, facilitating deployment on AWS ECS.
 
-### ADR 003: Choice of Python for Extraction and Artificial Intelligence (Open Claw)
+### ADR 003: Choice of Python + Ollama (LLaMA 3.1 8B) for AI Inference
 * **Status:** Accepted
-* **Context:** The core of the system is to monitor contracts via API, process large JSONs, and run artificial intelligence agents (LLMs) to filter complex "Software Development" data.
-* **Decision:** We will use Python.
-* **Justification:** * Python is the industry standard for data and AI. LLM SDKs, as well as agent frameworks like LangChain and Open Claw, are "Python-first".
-  * Native and third-party libraries (such as requests and pydantic) make ingesting and validating the British OCDS API extremely secure and efficient.
-  * Separating heavy AI processing (Python) from the traditional web server (PHP) avoids performance bottlenecks and allows for independent scaling of resources.
+* **Context:** The core of the system is to monitor contracts via API, process large JSONs, and run artificial intelligence agents (LLMs) to filter complex "Software Development" data. A fully self-hosted approach was chosen to eliminate external API costs, latency, and data-privacy concerns.
+* **Decision:** We will use Python for the worker and [Ollama](https://ollama.com) as the local LLM server, running **Meta LLaMA 3.1 8B** (quantised, ≤ 8 GB RAM). The Python `ollama` SDK (v0.6.2) communicates with the Ollama container over the internal Docker/ECS network.
+* **Justification:**
+  * Python is the industry standard for data and AI. The `ollama` SDK is lightweight, has no external API key requirement, and works entirely within the private VPC.
+  * LLaMA 3.1 8B achieves strong instruction-following and JSON-structured output quality for UK procurement classification tasks, with a 128 K context window.
+  * The Ollama container stores downloaded models in a named volume (`ollama_data`), so the ~5 GB model is pulled once and reused across container restarts.
+  * Separating heavy AI inference (Ollama ECS service) from the orchestration worker (Python ECS service) allows each to scale independently.
+  * No vendor lock-in: any Ollama-compatible model (Mistral, Gemma, Qwen, etc.) can be swapped in by changing a single `LLM_MODEL` environment variable.
 
 ### ADR 004: Use of AWS ECS/Fargate (Serverless Containers)
 * **Status:** Accepted

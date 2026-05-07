@@ -1,7 +1,7 @@
 # GovGrasp: Product Requirements Document (PRD) / RFC
 
 ## 1. Project Overview
-Created exclusively for demonstration and educational purposes to showcase the potential of integrating different technologies. GovGrasp is an automated intelligence pipeline designed to monitor, filter, and analyze UK government procurement opportunities directly or potential partnership proposals with winning companies of relevant tenders. By leveraging AI Agents (Scout and Analyst) via the Open Claw framework, the system identifies high-value software and technology contracts, providing a competitive edge for B2B tech companies.
+Created exclusively for demonstration and educational purposes to showcase the potential of integrating different technologies. GovGrasp is an automated intelligence pipeline designed to monitor, filter, and analyze UK government procurement opportunities directly or potential partnership proposals with winning companies of relevant tenders. By leveraging AI Agents (Scout and Analyst) powered by a self-hosted **LLaMA 3.1 8B** model running on **Ollama**, the system identifies high-value software and technology contracts, providing a competitive edge for B2B tech companies.
 
 ---
 
@@ -16,7 +16,7 @@ Created exclusively for demonstration and educational purposes to showcase the p
 - **API Integration:** Connect to the UK Contracts Finder OCDS API.
 - **Agentic Workflow:**
     - **Scout Agent:** Fetches and normalizes raw JSON data.
-    - **Analyst Agent:** Filters opportunities based on tech-specific keywords and requirements, as well as potential partnerships with companies that have won tenders.
+    - **Analyst Agent:** Filters opportunities based on tech-specific keywords and requirements using a locally-hosted LLaMA 3.1 8B model via Ollama (no external API key required), as well as potential partnerships with companies that have won tenders.
 - **12-Hour Cycle:** Run automated batches twice a day to ensure data freshness.
 - **Audit Logs:** Maintain logs of all fetched and analyzed opportunities for compliance and debugging.
 - **Secure Infrastructure:** Deploy using AWS best practices (IAM least privilege, Secrets Manager) and utilizing AWS Serverless solutions.
@@ -35,7 +35,7 @@ Created exclusively for demonstration and educational purposes to showcase the p
 1. **Trigger:** CloudWatch Events / Cron triggers the workflow every 12 hours, or on-demand via the React administration interface.
 2. **Ingestion:** Python `API Tool` requests data from UK Contracts Finder (OCDS).
 3. **Processing (Scout):** Raw JSON is parsed; duplicates are removed.
-4. **Analysis (Analyst):** The LLM evaluates the description/tags against criteria for tenders involving "Software Development".
+    4. **Analysis (Analyst):** The LLM (LLaMA 3.1 8B via Ollama) evaluates the description/tags against criteria for tenders involving "Software Development".
 5. **Output:** Qualified opportunities are stored (S3/Database) and notified to the user on the application interface and sent via email or WhatsApp.
 
 ---

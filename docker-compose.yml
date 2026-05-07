@@ -45,7 +45,42 @@ services:
     command: sh -c "composer install && php artisan serve --host=0.0.0.0 --port=8000"
 
   # ---------------------------------------------
-  # Worker AI (Python + Open Claw)
+  # Ollama — Local LLM Server (serves LLaMA 3.1 8B)
+  # Memory requirement: ≤ 8 GB RAM (model: 4.9 GB)
+  # ---------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: govgrasp_ollama
+    restart: unless-stopped
+    ports:
+      - "11435:11434" # host:11435 → container:11434 (avoids conflict if Ollama runs on host)
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - govgrasp_network
+    healthcheck:
+      test: [ "CMD", "ollama", "list" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  # One-shot: pulls llama3.1:8b into the shared volume (skipped if already cached)
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: govgrasp_ollama_init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    networks:
+      - govgrasp_network
+    restart: "no"
+    entrypoint: [ "ollama", "pull", "llama3.2:1b" ]
+
+  # ---------------------------------------------
+  # Worker AI (Python + Ollama / LLaMA 3.1 8B)
   # ---------------------------------------------
   worker:
     build:
@@ -61,16 +96,18 @@ services:
       - DB_NAME=${DB_DATABASE:-govgrasp}
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD:-secret}
-      - OPEN_CLAW_API_KEY=${OPEN_CLAW_API_KEY:-}
-      - OPEN_CLAW_BASE_URL=${OPEN_CLAW_BASE_URL:-}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - OLLAMA_HOST=http://ollama:11434
+      - LLM_MODEL=${LLM_MODEL:-llama3.2:1b}
       - S3_BUCKET_DATA=${S3_BUCKET_DATA:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-2}
       - SCHEDULE_HOURS=${SCHEDULE_HOURS:-12}
     volumes:
       - ./worker:/app
     depends_on:
-      - db
+      db:
+        condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
     networks:
       - govgrasp_network
     command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
@@ -95,6 +132,7 @@ services:
 
 volumes:
   postgres_data:
+  ollama_data:
 
 networks:
   govgrasp_network:

@@ -25,15 +25,15 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in **at minimum** these two values:
+Fill in **at minimum** this value:
 
 | Variable | Where to get it |
 |---|---|
 | `DB_PASSWORD` | Any string for local dev (e.g. `secret`) |
-| `OPEN_CLAW_API_KEY` | Request from the team admin |
 
 Leave `APP_KEY` blank — it is generated automatically in Step 4.
 Leave all `AWS_*` variables blank — they are only needed for cloud deployment.
+`OLLAMA_HOST` defaults to `http://ollama:11434` (the Docker service) — no API key required.
 
 ### Step 3 — Start local services
 
@@ -101,9 +101,9 @@ Infrastructure is treated as an independent microservice from the application co
 | `DB_HOST` | Amazon RDS endpoint |
 | `DB_USER` | RDS database user |
 | `DB_PASSWORD` | RDS database password |
-| `OPEN_CLAW_API_KEY` | AI orchestration API key |
-| `LLM_PROVIDER_TOKEN` | OpenAI / Anthropic / Google token |
 | `GITHUB_TOKEN` | CI/CD pipeline integrations |
+
+> **Note:** The LLM (LLaMA 3.1 8B via Ollama) runs as an ECS container within the same private VPC. No external AI API key is required in production.
 
 ---
 
@@ -120,7 +120,8 @@ All variables are documented in [`.env.example`](../.env.example). The table bel
 | `APP_ENV` | Yes | `local` for development, `production` for AWS |
 | `APP_DEBUG` | Yes | `true` locally, **`false` in production** |
 | `APP_URL` | Yes | Base URL (`http://localhost:8000` locally) |
-| `OPEN_CLAW_API_KEY` | Yes | API key for the AI worker |
+| `OLLAMA_HOST` | No (auto) | Ollama server URL (default: `http://ollama:11434`) |
+| `LLM_MODEL` | No (auto) | Model name (default: `llama3.1:8b`) |
 | `AWS_ACCESS_KEY_ID` | No (local) | AWS credentials — only needed for deployment |
 | `AWS_SECRET_ACCESS_KEY` | No (local) | AWS credentials — only needed for deployment |
 | `AWS_DEFAULT_REGION` | No (local) | Default: `eu-west-2` (London) |
@@ -152,15 +153,15 @@ cp .env.example .env
 nano .env
 ```
 
-Preencha **no mínimo** estas duas variáveis:
+Preencha **no mínimo** esta variável:
 
 | Variável | Como obter |
 |---|---|
 | `DB_PASSWORD` | Qualquer string para dev local (ex: `secret`) |
-| `OPEN_CLAW_API_KEY` | Solicite ao administrador do time |
 
 Deixe `APP_KEY` em branco — ele é gerado automaticamente no Passo 4.
 Deixe as variáveis `AWS_*` em branco — são necessárias apenas para deploy em nuvem.
+`OLLAMA_HOST` já possui padrão correto (`http://ollama:11434`) — nenhuma chave de API é necessária.
 
 ### Passo 3 — Subir os serviços locais
 

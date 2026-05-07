@@ -38,7 +38,8 @@ See [docs/ARCHITECTURE_AND_ADRS.md](docs/ARCHITECTURE_AND_ADRS.md) for the full 
 | Layer | Technology |
 |---|---|
 | Backend API | PHP 8.4 / Laravel 13 (ECS Fargate) |
-| AI Worker | Python 3.11 / Open Claw (ECS Fargate) |
+| AI Worker | Python 3.11 / Ollama + LLaMA 3.2 1B (ECS Fargate) |
+| LLM Server | Ollama (serves LLaMA 3.2 1B locally — ~1.5 GB RAM) |
 | Database | PostgreSQL 15 (Amazon RDS) |
 | Infrastructure | Terraform ≥ 1.5 → AWS (ECS, ALB, RDS, Secrets Manager) |
 | CI/CD | GitHub Actions (SAST, Trivy, Dependabot) |
@@ -73,7 +74,7 @@ cd GovGrasp
 #    Python tools, pre-commit hooks and creates .env from .env.example)
 bash scripts/setup.sh
 
-# 3. Fill in your credentials (at minimum DB_PASSWORD and OPEN_CLAW_API_KEY)
+# 3. Fill in your credentials (at minimum DB_PASSWORD; Ollama runs locally — no API key needed)
 nano .env
 
 # 4. Start all services (API + Worker + PostgreSQL)
@@ -82,9 +83,13 @@ docker compose up -d
 # 5. Generate the Laravel application key (required on first run)
 docker exec govgrasp_backend php artisan key:generate
 
+# NOTE: On first run, the ollama-init service downloads LLaMA 3.1 8B (~5 GB).
+# The worker starts automatically once the download completes.
+
 # 6. Check that everything is running
 docker compose ps
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000   # should print 200
+curl -s http://localhost:11435/api/tags | python3 -m json.tool   # Ollama model list
 ```
 
 The API will be available at **http://localhost:8000**.
@@ -109,7 +114,8 @@ cd GovGrasp
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in DB_PASSWORD and OPEN_CLAW_API_KEY at minimum
+# Edit .env and fill in DB_PASSWORD at minimum.
+# No LLM API key is required — the model runs locally via Ollama.
 nano .env
 ```
 
@@ -155,9 +161,13 @@ docker exec govgrasp_backend grep APP_KEY /var/www/html/.env >> .env
 
 ```bash
 docker compose ps
-# Expected: db=Up, backend=Up, worker=Up
+# Expected: db=Up, backend=Up, ollama=Up (healthy), worker=Up
 
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000
+# Expected: 200
+
+curl -s http://localhost:11435/api/tags | python3 -m json.tool
+# Expected: JSON list including llama3.1:8b
 # Expected: 200
 
 docker compose logs backend   # Laravel logs
@@ -218,7 +228,7 @@ GovGrasp/
 │   ├── database/       # Migrations and seeders
 │   ├── composer.json
 │   └── Dockerfile
-├── worker/             # Python 3.11 AI Worker
+├── worker/             # Python 3.11 AI Worker (uses Ollama Python client)
 │   ├── main.py         # Entry point with scheduler
 │   ├── requirements.txt
 │   └── Dockerfile
@@ -241,6 +251,57 @@ GovGrasp/
 ├── docker-compose.yml  # Local development environment
 ├── .env.example        # Environment variable template
 └── pre-commit-config.yaml
+```
+
+---
+
+## Local LLM — Ollama + LLaMA 3.1 8B
+
+GovGrasp runs all AI inference **fully offline** using [Ollama](https://ollama.com) as the LLM server and [Meta LLaMA 3.1 8B](https://ollama.com/library/llama3.1) as the model. No external API key is required.
+
+| Detail | Value |
+|---|---|
+| Model | `llama3.1:8b` |
+| Context window | 128 K tokens |
+| Disk size | ~4.9 GB |
+| RAM required | ≤ 8 GB |
+| Docker service | `govgrasp_ollama` (host port `11435` → container `11434`) |
+| Python client | `ollama==0.6.2` |
+
+### How the model is provisioned
+
+1. `docker compose up -d` starts the `ollama` service and waits for it to become healthy.
+2. The `ollama-init` one-shot container runs `ollama pull llama3.1:8b`, which downloads the model into the shared `ollama_data` Docker volume.
+3. Once the download completes (`ollama-init` exits 0), the `worker` container starts.
+4. On subsequent runs the model is already cached in the volume — startup is immediate.
+
+### Manual Ollama commands
+
+```bash
+# Check which models are downloaded
+curl -s http://localhost:11435/api/tags | python3 -m json.tool
+
+# Send a test prompt directly to Ollama
+curl -s http://localhost:11435/api/chat \
+  -d '{"model":"llama3.1:8b","messages":[{"role":"user","content":"Hello!"}],"stream":false}' \
+  | python3 -m json.tool
+
+# Pull a different model (e.g. mistral for testing)
+docker exec govgrasp_ollama ollama pull mistral:7b
+
+# Open an interactive chat with the model
+docker exec -it govgrasp_ollama ollama run llama3.1:8b
+```
+
+### Changing the model
+
+Set `LLM_MODEL` in your `.env` and restart:
+
+```bash
+LLM_MODEL=llama3.2:1b   # default — fits in ~1.5 GB RAM
+LLM_MODEL=llama3.1:8b   # better quality, needs ~6 GB RAM
+LLM_MODEL=mistral:7b    # alternative, needs ~5 GB RAM
+docker compose up -d --force-recreate worker
 ```
 
 ---
@@ -374,4 +435,3 @@ docker compose up -d
 docker exec govgrasp_backend php artisan key:generate
 docker exec govgrasp_backend php artisan migrate
 ```
-

@@ -1,4 +1,4 @@
-"""Analyst Agent — classifies opportunities with an LLM (Open Claw / OpenAI-compatible)."""
+"""Analyst Agent — classifies opportunities using a local LLM via Ollama."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import os
 from typing import Any
 
+import ollama
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -29,38 +30,28 @@ Respond ONLY with a valid JSON object — no markdown, no extra text:
 
 
 class AnalystAgent:
-    """Uses an OpenAI-compatible LLM to qualify and score procurement opportunities."""
+    """Uses a local LLM (LLaMA 3.1 8B via Ollama) to qualify and score procurement opportunities."""
 
     def __init__(self) -> None:
-        api_key = os.getenv("OPEN_CLAW_API_KEY", "")
-        base_url = os.getenv(
-            "OPEN_CLAW_BASE_URL"
-        )  # Optional: point to any compatible endpoint
-        self._model = os.getenv("LLM_MODEL", "gpt-4o-mini")
-        self._client = None
+        ollama_host = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+        self._model = os.getenv("LLM_MODEL", "llama3.1:8b")
+        self._client = ollama.Client(host=ollama_host)
 
-        if not api_key:
-            log.warning("analyst.disabled", reason="OPEN_CLAW_API_KEY not set")
-            return
-
+        # Ensure the model is available locally; pull it if not yet cached.
         try:
-            from openai import OpenAI
-
-            self._client = OpenAI(api_key=api_key, base_url=base_url)
-        except Exception as exc:
-            log.error("analyst.init_failed", error=str(exc))
+            self._client.show(self._model)
+            log.info("analyst.model_ready", model=self._model, host=ollama_host)
+        except ollama.ResponseError:
+            log.info("analyst.pulling_model", model=self._model, host=ollama_host)
+            for progress in self._client.pull(self._model, stream=True):
+                status = progress.get("status", "")
+                if status:
+                    log.info("analyst.pull_progress", status=status)
+            log.info("analyst.model_ready", model=self._model)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=8))
     def analyse(self, opportunity: dict[str, Any]) -> dict[str, Any]:
         """Return classification dict for a normalised opportunity."""
-        if self._client is None:
-            return {
-                "qualified": False,
-                "score": 0,
-                "reasoning": "AI analysis disabled — OPEN_CLAW_API_KEY not configured.",
-                "framework": None,
-            }
-
         user_msg = (
             f"Title: {opportunity.get('title', '')}\n"
             f"Buyer: {opportunity.get('buyer_name', '')}\n"
@@ -68,18 +59,17 @@ class AnalystAgent:
             f"Description: {(opportunity.get('description') or '')[:1200]}"
         )
 
-        response = self._client.chat.completions.create(
+        response = self._client.chat(
             model=self._model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
-            temperature=0,
-            max_tokens=300,
-            response_format={"type": "json_object"},
+            format="json",
+            options={"temperature": 0},
         )
 
-        result: dict[str, Any] = json.loads(response.choices[0].message.content)
+        result: dict[str, Any] = json.loads(response.message.content)
         log.info(
             "analyst.classified",
             ocid=opportunity.get("ocid"),
