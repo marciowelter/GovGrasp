@@ -1,36 +1,38 @@
-# Usa a versão Alpine do PHP 8.2 (mais leve e segura)
+# Use the version PHP 8.2 Alpine (light e safer)
 FROM php:8.4-fpm-alpine
 
-# Argumentos para criar usuário não-root (DevSecOps)
+# Arguments for creating a non-root user (DevSecOps)
 ARG UID=1000
 ARG GID=1000
 
-# Define o diretório de trabalho
+# Defines the working directory
 WORKDIR /var/www/html
 
-# Instala as dependências do sistema e extensões do PHP para o PostgreSQL
+# Installs the PHP system dependencies and extensions for PostgreSQL, ZIP, and Java (for potential use in the application)
 RUN apk add --no-cache \
     postgresql-dev \
     libzip-dev \
     zip \
     unzip \
+    openjdk17-jre \
+    bash \
     && docker-php-ext-install pdo pdo_pgsql zip
 
-# Instala o Composer (Gerenciador de pacotes do PHP)
+# Installs Composer (PHP package manager)
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Cria um usuário sem privilégios de root para rodar a aplicação
+# Creates a non-root user to run the application
 RUN addgroup -g ${GID} laravel \
     && adduser -G laravel -u ${UID} -h /home/laravel -s /bin/sh -D laravel
 
-# Ajusta permissões da pasta
+# Adjusts folder permissions
 RUN chown -R laravel:laravel /var/www/html
 
-# Troca para o usuário seguro
+# Switches to the non-root user
 USER laravel
 
-# Expõe a porta do PHP-FPM
+# Exposes the PHP-FPM port
 EXPOSE 9000
 
-# Comando padrão
+# Default command
 CMD ["php-fpm"]
