@@ -7,6 +7,23 @@ import WorkerStatus from './components/WorkerStatus'
 
 const STATUS_OPTIONS = ['', 'qualified', 'rejected', 'new']
 
+const DEFAULT_COMPANY_PROFILE =
+    'NexaTech Solutions Ltd is a global software development and digital transformation ' +
+    'company specialising in cloud-native architecture, AI/ML platforms, cybersecurity, and ' +
+    'enterprise SaaS. We deliver end-to-end digital services to public and private sector ' +
+    'clients across the UK, Europe and North America — from strategy and UX design through ' +
+    'agile delivery, DevSecOps, data engineering and managed services. ' +
+    'Preferred frameworks: G-Cloud, Digital Outcomes & Specialists (DOS), CCS RM6259.'
+
+function todayISO() {
+    return new Date().toISOString().slice(0, 10)
+}
+function daysAgoISO(n) {
+    const d = new Date()
+    d.setDate(d.getDate() - n)
+    return d.toISOString().slice(0, 10)
+}
+
 export default function App() {
     const [opportunities, setOpportunities] = useState([])
     const [pagination, setPagination] = useState(null)
@@ -16,7 +33,13 @@ export default function App() {
     const [loadingList, setLoadingList] = useState(false)
     const [loadingStats, setLoadingStats] = useState(false)
 
-    // Filters
+    // Pipeline filters (sent to the worker on trigger)
+    const [startDate, setStartDate] = useState(daysAgoISO(7))
+    const [endDate, setEndDate] = useState(todayISO())
+    const [companyProfile, setCompanyProfile] = useState(DEFAULT_COMPANY_PROFILE)
+    const [showProfile, setShowProfile] = useState(false)
+
+    // Table filters
     const [search, setSearch] = useState('')
     const [status, setStatus] = useState('')
     const [framework, setFramework] = useState('')
@@ -84,7 +107,13 @@ export default function App() {
                         <h1 className="text-xl font-bold text-gray-900">🏛️ GovGrasp</h1>
                         <p className="text-xs text-gray-500">UK Government Procurement Intelligence</p>
                     </div>
-                    <WorkerStatus workerStatus={workerStatus} onTriggered={() => { fetchStats(); setTimeout(fetchList, 3000) }} />
+                    <WorkerStatus
+                        workerStatus={workerStatus}
+                        startDate={startDate}
+                        endDate={endDate}
+                        companyProfile={companyProfile}
+                        onTriggered={() => { fetchStats(); setTimeout(fetchList, 3000) }}
+                    />
                 </div>
             </header>
 
@@ -92,7 +121,66 @@ export default function App() {
                 {/* Stats */}
                 <StatsBar stats={stats} loading={loadingStats} />
 
-                {/* Filter bar */}
+                {/* Pipeline configuration panel */}
+                <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-5 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                        <h2 className="text-sm font-semibold text-gray-700">🔍 Pipeline Search Settings</h2>
+                        <button
+                            onClick={() => setShowProfile((v) => !v)}
+                            className="text-xs text-blue-600 hover:text-blue-800 transition"
+                        >
+                            {showProfile ? '▲ Hide company profile' : '▼ Show company profile'}
+                        </button>
+                    </div>
+
+                    <div className="px-4 py-3 flex flex-col sm:flex-row gap-3">
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-gray-500">Start date</label>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                max={endDate}
+                                className="border border-gray-300 rounded-lg px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-gray-500">End date</label>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                min={startDate}
+                                className="border border-gray-300 rounded-lg px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                        </div>
+                        <div className="flex items-end">
+                            <p className="text-xs text-gray-400 pb-2">
+                                The pipeline will search all tenders published between these dates and score them using the company profile below.
+                            </p>
+                        </div>
+                    </div>
+
+                    {showProfile && (
+                        <div className="px-4 pb-4">
+                            <label className="text-xs font-medium text-gray-500 block mb-1">
+                                Company profile <span className="text-gray-400">(used by the AI analyst to calculate relevance score)</span>
+                            </label>
+                            <textarea
+                                value={companyProfile}
+                                onChange={(e) => setCompanyProfile(e.target.value)}
+                                rows={5}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                                placeholder="Describe your company's services, expertise, and target contracts…"
+                            />
+                            <p className="text-xs text-gray-400 mt-1">
+                                Edit this text to match your real company — the AI analyst uses it to personalise the AI Score.
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Table filter bar */}
                 <div className="flex flex-col sm:flex-row gap-3 mb-5">
                     <input
                         type="search"

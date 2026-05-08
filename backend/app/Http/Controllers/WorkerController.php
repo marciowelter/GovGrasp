@@ -15,10 +15,17 @@ class WorkerController extends Controller
         $this->workerUrl = rtrim(config('services.worker.url', 'http://worker:8001'), '/');
     }
 
-    public function trigger(): JsonResponse
+    public function trigger(\Illuminate\Http\Request $request): JsonResponse
     {
         try {
-            $response = Http::timeout(5)->post("{$this->workerUrl}/trigger");
+            $response = Http::timeout(5)
+                ->post("{$this->workerUrl}/trigger", $request->only([
+                    'start_date',
+                    'end_date',
+                    'days_back',
+                    'company_profile',
+                    'reanalyse',
+                ]));
 
             return response()->json([
                 'status' => 'triggered',
@@ -47,5 +54,15 @@ class WorkerController extends Controller
             'last_run' => $lastRun,
             'worker_status' => $workerLive,
         ]);
+    }
+
+    public function defaults(): JsonResponse
+    {
+        try {
+            $response = Http::timeout(5)->get("{$this->workerUrl}/config/defaults");
+            return response()->json($response->json());
+        } catch (\Exception) {
+            return response()->json(['default_company_profile' => null]);
+        }
     }
 }

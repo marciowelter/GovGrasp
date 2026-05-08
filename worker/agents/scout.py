@@ -18,51 +18,86 @@ PAGE_SIZE = 100
 
 
 class ScoutAgent:
-    """Fetches and normalises releases from the UK Contracts Finder OCDS API."""
+    """Fetches and normalises releases from the UK Contracts Finder OCDS API.
 
-    def __init__(self, days_back: int = 1) -> None:
-        self.days_back = days_back
+    Parameters
+    ----------
+    start_date:
+        Inclusive start of the search window (ISO-8601 date string, e.g. ``"2026-05-01"``).
+        If *None*, defaults to ``days_back`` days before today.
+    end_date:
+        Inclusive end of the search window (ISO-8601 date string, e.g. ``"2026-05-07"``).
+        If *None*, defaults to today.
+    days_back:
+        Fallback window size in days when ``start_date`` is not supplied.
+    """
+
+    def __init__(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        days_back: int = 1,
+    ) -> None:
+        today = datetime.date.today()
+        self._end_date: str = end_date or today.isoformat()
+        self._start_date: str = (
+            start_date or (today - datetime.timedelta(days=days_back)).isoformat()
+        )
         self._client = httpx.Client(
             timeout=30.0, headers={"Accept": "application/json"}
         )
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
-    def _fetch_page(self, start_date: str, end_date: str, page: int) -> dict[str, Any]:
-        params = {
-            "startDate": start_date,
-            "endDate": end_date,
-            "page": page,
-            "size": PAGE_SIZE,
-        }
-        url = f"{CONTRACTS_FINDER_BASE}{SEARCH_PATH}?{urlencode(params)}"
-        log.info("scout.fetch_page", page=page, url=url)
+    def _fetch_url(self, url: str) -> dict[str, Any]:
+        """GET a single URL and return the parsed JSON response."""
+        log.info("scout.fetch_page", url=url)
         resp = self._client.get(url)
         resp.raise_for_status()
         return resp.json()
 
     def fetch(self) -> list[dict[str, Any]]:
-        """Return all OCDS releases published in the last ``days_back`` days."""
-        end = datetime.date.today()
-        start = end - datetime.timedelta(days=self.days_back)
+        """Return ALL OCDS releases published in the configured date window.
+
+        The Contracts Finder OCDS API uses cursor-based pagination: each
+        response contains a ``links.next`` URL with an opaque cursor token.
+        Incrementing the ``page`` query-string parameter has no effect —
+        every numbered page returns the same first batch.  We must follow
+        ``links.next`` to advance through the result set.
+        """
+        log.info(
+            "scout.fetch_start",
+            start_date=self._start_date,
+            end_date=self._end_date,
+        )
+        # Build the URL for the first page only; subsequent pages use the
+        # cursor URLs returned by the API in links.next.
+        first_url = (
+            f"{CONTRACTS_FINDER_BASE}{SEARCH_PATH}"
+            f"?{urlencode({'startDate': self._start_date, 'endDate': self._end_date, 'page': 1, 'size': PAGE_SIZE})}"
+        )
+
         releases: list[dict[str, Any]] = []
-        page = 1  # Contracts Finder API is 1-indexed
-        while True:
-            data = self._fetch_page(start.isoformat(), end.isoformat(), page)
+        next_url: str | None = first_url
+        page = 1
+
+        while next_url:
+            data = self._fetch_url(next_url)
             batch: list[dict[str, Any]] = data.get("releases", [])
             if not batch:
                 break
             releases.extend(batch)
-            total_pages: int = data.get("totalPages", 1)
+            # The API signals the next page via links.next (cursor-based).
+            # When links.next is absent or empty the current page is the last.
+            next_url = data.get("links", {}).get("next") or None
             log.info(
                 "scout.page_done",
                 page=page,
-                total_pages=total_pages,
                 batch=len(batch),
                 total=len(releases),
+                has_next=bool(next_url),
             )
-            if page >= total_pages or len(batch) < PAGE_SIZE:
-                break
             page += 1
+
         log.info("scout.fetch_complete", total=len(releases))
         return releases
 

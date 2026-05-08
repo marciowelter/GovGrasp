@@ -9,4 +9,5 @@ export const getOpportunities = (params) => api.get('/opportunities', { params }
 export const getOpportunity = (id) => api.get(`/opportunities/${id}`)
 export const getStats = () => api.get('/opportunities/stats')
 export const getWorkerStatus = () => api.get('/worker/status')
-export const triggerWorker = () => api.post('/worker/trigger')
+export const triggerWorker = (payload = {}) => api.post('/worker/trigger', payload)
+export const getWorkerDefaults = () => api.get('/worker/defaults')

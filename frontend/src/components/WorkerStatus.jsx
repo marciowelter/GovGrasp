@@ -12,7 +12,7 @@ function fmtDate(dt) {
     return new Date(dt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-export default function WorkerStatus({ workerStatus, onTriggered }) {
+export default function WorkerStatus({ workerStatus, onTriggered, startDate, endDate, companyProfile }) {
     const [triggering, setTriggering] = useState(false)
     const [error, setError] = useState(null)
 
@@ -23,7 +23,12 @@ export default function WorkerStatus({ workerStatus, onTriggered }) {
         setTriggering(true)
         setError(null)
         try {
-            await triggerWorker()
+            const payload = {
+                ...(startDate ? { start_date: startDate } : {}),
+                ...(endDate ? { end_date: endDate } : {}),
+                ...(companyProfile ? { company_profile: companyProfile } : {}),
+            }
+            await triggerWorker(payload)
             onTriggered?.()
         } catch (err) {
             setError(err?.response?.data?.message ?? 'Worker unreachable. Is the container running?')
