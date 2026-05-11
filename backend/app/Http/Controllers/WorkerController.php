@@ -39,6 +39,22 @@ class WorkerController extends Controller
         }
     }
 
+    public function abort(): JsonResponse
+    {
+        try {
+            $response = Http::timeout(5)->post("{$this->workerUrl}/abort");
+            return response()->json([
+                'status' => 'ok',
+                'worker_response' => $response->json(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Worker service unreachable: ' . $e->getMessage(),
+            ], 503);
+        }
+    }
+
     public function status(): JsonResponse
     {
         $lastRun = WorkerRun::latest()->first();

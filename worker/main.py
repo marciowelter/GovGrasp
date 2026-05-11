@@ -32,8 +32,16 @@ structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.
 log = structlog.get_logger()
 
 SCHEDULE_HOURS = int(os.getenv("SCHEDULE_HOURS", "12"))
+AUTO_RUN_ON_STARTUP = os.getenv("AUTO_RUN_ON_STARTUP", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+COMMIT_EVERY_N = int(os.getenv("COMMIT_EVERY_N", "25"))
 
 _pipeline_lock = asyncio.Lock()
+_cancel_requested = asyncio.Event()
 
 
 class PipelineRequest(BaseModel):
@@ -97,8 +105,11 @@ async def run_pipeline(
         return {"status": "skipped", "reason": "pipeline already running"}
 
     async with _pipeline_lock:
+        _cancel_requested.clear()
         session = get_session()
-        run = WorkerRun(status="running", started_at=datetime.datetime.utcnow())
+        run = WorkerRun(
+            status="running", started_at=datetime.datetime.now(datetime.UTC)
+        )
         session.add(run)
         session.commit()
         session.refresh(run)
@@ -111,14 +122,30 @@ async def run_pipeline(
             )
             analyst = AnalystAgent(company_profile=company_profile)
 
-            releases = await asyncio.to_thread(scout.fetch)
-            run.opportunities_fetched = len(releases)
-            session.commit()
-
             qualified_count = 0
             skipped_count = 0
+            processed_count = 0
+            fetched_count = 0
 
-            for release in releases:
+            for release in scout.iter_releases():
+                fetched_count += 1
+                run.opportunities_fetched = fetched_count
+
+                if _cancel_requested.is_set():
+                    run.status = "cancelled"
+                    run.opportunities_qualified = qualified_count
+                    run.completed_at = datetime.datetime.now(datetime.UTC)
+                    session.commit()
+                    summary = {
+                        "status": "cancelled",
+                        "fetched": fetched_count,
+                        "qualified": qualified_count,
+                        "processed": processed_count,
+                        "skipped_already_scored": skipped_count,
+                    }
+                    log.warning("pipeline.cancelled", **summary)
+                    return summary
+
                 normalised = scout.normalise(release)
                 ocid = normalised["ocid"]
                 if not ocid:
@@ -144,6 +171,7 @@ async def run_pipeline(
 
                 s3_key = await asyncio.to_thread(upload_raw_json, ocid, release)
                 analysis = await asyncio.to_thread(analyst.analyse, normalised)
+                processed_count += 1
 
                 opp_status = "qualified" if analysis.get("qualified") else "rejected"
                 if analysis.get("qualified"):
@@ -178,17 +206,33 @@ async def run_pipeline(
                         )
                     )
 
+                # Persist progress incrementally so long runs are resumable and visible.
+                if COMMIT_EVERY_N > 0 and processed_count % COMMIT_EVERY_N == 0:
+                    run.opportunities_fetched = fetched_count
+                    run.processed_count = processed_count
+                    run.opportunities_qualified = qualified_count
+                    session.commit()
+                    log.info(
+                        "pipeline.progress",
+                        processed=processed_count,
+                        fetched=fetched_count,
+                        qualified=qualified_count,
+                    )
+
+            run.opportunities_fetched = fetched_count
+            run.processed_count = processed_count
             session.commit()
 
             run.status = "completed"
             run.opportunities_qualified = qualified_count
-            run.completed_at = datetime.datetime.utcnow()
+            run.completed_at = datetime.datetime.now(datetime.UTC)
             session.commit()
 
             summary = {
                 "status": "completed",
-                "fetched": run.opportunities_fetched,
+                "fetched": fetched_count,
                 "qualified": qualified_count,
+                "processed": processed_count,
                 "skipped_already_scored": skipped_count,
             }
             log.info("pipeline.done", **summary)
@@ -198,7 +242,7 @@ async def run_pipeline(
             log.error("pipeline.failed", error=str(exc))
             run.status = "failed"
             run.error_message = str(exc)
-            run.completed_at = datetime.datetime.utcnow()
+            run.completed_at = datetime.datetime.now(datetime.UTC)
             session.commit()
             raise
         finally:
@@ -207,7 +251,10 @@ async def run_pipeline(
 
 async def _scheduler() -> None:
     log.info("scheduler.start", interval_hours=SCHEDULE_HOURS)
-    await run_pipeline()
+    if AUTO_RUN_ON_STARTUP:
+        await run_pipeline()
+    else:
+        log.info("scheduler.autorun_disabled")
     while True:
         await asyncio.sleep(SCHEDULE_HOURS * 3600)
         await run_pipeline()
@@ -222,7 +269,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     try:
         await task
     except asyncio.CancelledError:
-        pass
+        raise
 
 
 app = FastAPI(title="GovGrasp Worker", version="1.0.0", lifespan=lifespan)
@@ -265,6 +312,15 @@ async def trigger(
     return JSONResponse({"status": "triggered"})
 
 
+@app.post("/abort")
+async def abort_pipeline() -> JSONResponse:
+    """Request graceful cancellation of the active pipeline run."""
+    if not _pipeline_lock.locked():
+        return JSONResponse({"status": "idle", "message": "no active pipeline"})
+    _cancel_requested.set()
+    return JSONResponse({"status": "cancelling"})
+
+
 @app.get("/config/defaults")
 async def get_defaults() -> dict[str, Any]:
     """Return default pipeline configuration values."""
@@ -285,6 +341,7 @@ async def pipeline_status() -> dict[str, Any]:
                 "id": last.id,
                 "status": last.status,
                 "opportunities_fetched": last.opportunities_fetched,
+                "processed_count": last.processed_count,
                 "opportunities_qualified": last.opportunities_qualified,
                 "started_at": last.started_at.isoformat() if last.started_at else None,
                 "completed_at": (

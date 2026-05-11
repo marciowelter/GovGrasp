@@ -34,7 +34,7 @@ services:
       - DB_PORT=5432
       - DB_DATABASE=${DB_DATABASE:-govgrasp}
       - DB_USERNAME=${DB_USER:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD:-change_me_in_production}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
       - WORKER_URL=http://worker:8001
     volumes:
       - ./backend:/var/www/html
@@ -101,6 +101,8 @@ services:
       - S3_BUCKET_DATA=${S3_BUCKET_DATA:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-2}
       - SCHEDULE_HOURS=${SCHEDULE_HOURS:-12}
+      - AUTO_RUN_ON_STARTUP=${AUTO_RUN_ON_STARTUP:-false}
+      - COMMIT_EVERY_N=${COMMIT_EVERY_N:-25}
     volumes:
       - ./worker:/app
     depends_on:

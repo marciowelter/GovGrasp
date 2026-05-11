@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urlencode
 
@@ -55,14 +56,12 @@ class ScoutAgent:
         resp.raise_for_status()
         return resp.json()
 
-    def fetch(self) -> list[dict[str, Any]]:
-        """Return ALL OCDS releases published in the configured date window.
+    def iter_releases(self) -> Iterator[dict[str, Any]]:
+        """Yield OCDS releases page by page for the configured date window.
 
         The Contracts Finder OCDS API uses cursor-based pagination: each
         response contains a ``links.next`` URL with an opaque cursor token.
-        Incrementing the ``page`` query-string parameter has no effect —
-        every numbered page returns the same first batch.  We must follow
-        ``links.next`` to advance through the result set.
+        Incrementing the ``page`` query-string parameter has no effect.
         """
         log.info(
             "scout.fetch_start",
@@ -76,16 +75,16 @@ class ScoutAgent:
             f"?{urlencode({'startDate': self._start_date, 'endDate': self._end_date, 'page': 1, 'size': PAGE_SIZE})}"
         )
 
-        releases: list[dict[str, Any]] = []
         next_url: str | None = first_url
         page = 1
+        total = 0
 
         while next_url:
             data = self._fetch_url(next_url)
             batch: list[dict[str, Any]] = data.get("releases", [])
             if not batch:
                 break
-            releases.extend(batch)
+            total += len(batch)
             # The API signals the next page via links.next (cursor-based).
             # When links.next is absent or empty the current page is the last.
             next_url = data.get("links", {}).get("next") or None
@@ -93,12 +92,23 @@ class ScoutAgent:
                 "scout.page_done",
                 page=page,
                 batch=len(batch),
-                total=len(releases),
+                total=total,
                 has_next=bool(next_url),
             )
+            for release in batch:
+                yield release
             page += 1
 
-        log.info("scout.fetch_complete", total=len(releases))
+        log.info("scout.fetch_complete", total=total)
+
+    def fetch(self) -> list[dict[str, Any]]:
+        """Return ALL OCDS releases as a list.
+
+        Kept for backwards compatibility. Prefer ``iter_releases`` for
+        memory-efficient streaming in long date ranges.
+        """
+        releases = list(self.iter_releases())
+        log.info("scout.fetch_materialized", total=len(releases))
         return releases
 
     @staticmethod

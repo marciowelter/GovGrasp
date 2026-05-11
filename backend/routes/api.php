@@ -12,6 +12,7 @@ Route::prefix('v1')->group(function (): void {
 
     // Worker pipeline
     Route::post('worker/trigger', [WorkerController::class, 'trigger']);
+    Route::post('worker/abort', [WorkerController::class, 'abort']);
     Route::get('worker/status', [WorkerController::class, 'status']);
     Route::get('worker/defaults', [WorkerController::class, 'defaults']);
 });

@@ -9,6 +9,7 @@ class WorkerRun extends Model
     protected $fillable = [
         'status',
         'opportunities_fetched',
+        'processed_count',
         'opportunities_qualified',
         'error_message',
         'started_at',
@@ -19,6 +20,7 @@ class WorkerRun extends Model
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
         'opportunities_fetched' => 'integer',
+        'processed_count' => 'integer',
         'opportunities_qualified' => 'integer',
     ];
 }
