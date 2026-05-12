@@ -1,5 +1,5 @@
 # HTTP & APIs
-requests==2.32.3
+requests==2.34.0
 httpx==0.28.1
 
 # Database
