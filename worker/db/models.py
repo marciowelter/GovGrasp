@@ -44,7 +44,7 @@ class Opportunity(Base):
     qualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     ai_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ai_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
-    framework: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    framework: Mapped[str | None] = mapped_column(String(500), nullable=True)
     raw_s3_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

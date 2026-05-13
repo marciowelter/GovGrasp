@@ -81,6 +81,31 @@ def _parse_dt(value: str | None) -> datetime.datetime | None:
         return None
 
 
+def _mark_run_failed(run_id: int, error_message: str) -> None:
+    """Persist failed terminal state even if the primary session is broken."""
+    failed_at = datetime.datetime.now(datetime.UTC)
+    fallback = get_session()
+    try:
+        fallback.query(WorkerRun).filter(WorkerRun.id == run_id).update(
+            {
+                "status": "failed",
+                "error_message": error_message,
+                "completed_at": failed_at,
+            },
+            synchronize_session=False,
+        )
+        fallback.commit()
+    except Exception as persist_exc:
+        fallback.rollback()
+        log.error(
+            "pipeline.fail_persist_error",
+            run_id=run_id,
+            error=str(persist_exc),
+        )
+    finally:
+        fallback.close()
+
+
 async def run_pipeline(
     start_date: str | None = None,
     end_date: str | None = None,
@@ -239,11 +264,17 @@ async def run_pipeline(
             return summary
 
         except Exception as exc:
-            log.error("pipeline.failed", error=str(exc))
-            run.status = "failed"
-            run.error_message = str(exc)
-            run.completed_at = datetime.datetime.now(datetime.UTC)
-            session.commit()
+            error_message = str(exc)
+            log.error("pipeline.failed", error=error_message)
+
+            # SQLAlchemy marks the transaction as failed after flush/autoflush
+            # exceptions, so rollback first and persist failure in a fresh session.
+            try:
+                session.rollback()
+            except Exception as rollback_exc:
+                log.error("pipeline.rollback_failed", error=str(rollback_exc))
+
+            _mark_run_failed(run.id, error_message)
             raise
         finally:
             session.close()
