@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Opportunity;
+use App\Models\WorkerRun;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class OpportunityController extends Controller
 {
@@ -47,6 +49,19 @@ class OpportunityController extends Controller
                 ->pluck('framework')
                 ->sort()
                 ->values(),
+        ]);
+    }
+
+    public function deleteAll(): JsonResponse
+    {
+        DB::transaction(function (): void {
+            Opportunity::query()->delete();
+            WorkerRun::query()->delete();
+        });
+
+        return response()->json([
+            'status' => 'ok',
+            'message' => 'All opportunities and worker runs were deleted.',
         ]);
     }
 }

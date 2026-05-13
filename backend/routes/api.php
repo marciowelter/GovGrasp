@@ -9,6 +9,7 @@ Route::prefix('v1')->group(function (): void {
     Route::get('opportunities/stats', [OpportunityController::class, 'stats']);
     Route::get('opportunities', [OpportunityController::class, 'index']);
     Route::get('opportunities/{opportunity}', [OpportunityController::class, 'show']);
+    Route::delete('opportunities', [OpportunityController::class, 'deleteAll']);
 
     // Worker pipeline
     Route::post('worker/trigger', [WorkerController::class, 'trigger']);

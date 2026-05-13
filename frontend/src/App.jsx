@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getOpportunities, getOpportunity, getStats, getWorkerStatus } from './api/client'
+import { deleteAllOpportunities, getOpportunities, getOpportunity, getStats, getWorkerStatus } from './api/client'
 import OpportunityDetail from './components/OpportunityDetail'
 import OpportunityTable from './components/OpportunityTable'
 import StatsBar from './components/StatsBar'
@@ -37,7 +37,8 @@ export default function App() {
     const [startDate, setStartDate] = useState(daysAgoISO(7))
     const [endDate, setEndDate] = useState(todayISO())
     const [companyProfile, setCompanyProfile] = useState(DEFAULT_COMPANY_PROFILE)
-    const [showProfile, setShowProfile] = useState(false)
+    const [deletingAll, setDeletingAll] = useState(false)
+    const [deleteError, setDeleteError] = useState(null)
 
     // Table filters
     const [search, setSearch] = useState('')
@@ -89,12 +90,38 @@ export default function App() {
         return () => clearInterval(id)
     }, [fetchStats])
 
+    const liveWorkerStatus = workerStatus?.worker_status
+    const isRunning = Boolean(liveWorkerStatus?.is_running || workerStatus?.last_run?.status === 'running')
+
     async function handleSelect(opp) {
         try {
             const res = await getOpportunity(opp.id)
             setSelected(res.data)
         } catch {
             setSelected(opp)
+        }
+    }
+
+    async function handleDeleteAll() {
+        if (isRunning) {
+            setDeleteError('Stop the pipeline before deleting all opportunities.')
+            return
+        }
+
+        const ok = window.confirm('Delete all imported opportunities and reset the database for reimport?')
+        if (!ok) return
+
+        setDeletingAll(true)
+        setDeleteError(null)
+        try {
+            await deleteAllOpportunities()
+            setSelected(null)
+            setPage(1)
+            await Promise.all([fetchStats(), fetchList()])
+        } catch (err) {
+            setDeleteError(err?.response?.data?.message ?? err?.message ?? 'Failed to delete all opportunities.')
+        } finally {
+            setDeletingAll(false)
         }
     }
 
@@ -107,13 +134,6 @@ export default function App() {
                         <h1 className="text-xl font-bold text-gray-900">🏛️ GovGrasp</h1>
                         <p className="text-xs text-gray-500">UK Government Procurement Intelligence</p>
                     </div>
-                    <WorkerStatus
-                        workerStatus={workerStatus}
-                        startDate={startDate}
-                        endDate={endDate}
-                        companyProfile={companyProfile}
-                        onTriggered={() => { fetchStats(); setTimeout(fetchList, 3000) }}
-                    />
                 </div>
             </header>
 
@@ -121,16 +141,35 @@ export default function App() {
                 {/* Stats */}
                 <StatsBar stats={stats} loading={loadingStats} />
 
+                {/* Fixed company profile panel */}
+                <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-5 p-4">
+                    <label className="text-sm font-semibold text-gray-700 block mb-2">
+                        Company profile <span className="text-gray-500 font-medium">(used by the AI analyst to calculate relevance score)</span>
+                    </label>
+                    <textarea
+                        value={companyProfile}
+                        onChange={(e) => setCompanyProfile(e.target.value)}
+                        rows={5}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                        placeholder="Describe your company's services, expertise, and target contracts…"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                        This profile is always editable and will be used in the next pipeline run.
+                    </p>
+                </div>
+
                 {/* Pipeline configuration panel */}
                 <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-5 overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <div className="px-4 py-3 border-b border-gray-100 space-y-3">
                         <h2 className="text-sm font-semibold text-gray-700">🔍 Pipeline Search Settings</h2>
-                        <button
-                            onClick={() => setShowProfile((v) => !v)}
-                            className="text-xs text-blue-600 hover:text-blue-800 transition"
-                        >
-                            {showProfile ? '▲ Hide company profile' : '▼ Show company profile'}
-                        </button>
+
+                        <WorkerStatus
+                            workerStatus={workerStatus}
+                            startDate={startDate}
+                            endDate={endDate}
+                            companyProfile={companyProfile}
+                            onTriggered={() => { fetchStats(); setTimeout(fetchList, 3000) }}
+                        />
                     </div>
 
                     <div className="px-4 py-3 flex flex-col sm:flex-row gap-3">
@@ -156,28 +195,10 @@ export default function App() {
                         </div>
                         <div className="flex items-end">
                             <p className="text-xs text-gray-400 pb-2">
-                                The pipeline will search all tenders published between these dates and score them using the company profile below.
+                                The pipeline will search all tenders published between these dates and score them using the company profile above.
                             </p>
                         </div>
                     </div>
-
-                    {showProfile && (
-                        <div className="px-4 pb-4">
-                            <label className="text-xs font-medium text-gray-500 block mb-1">
-                                Company profile <span className="text-gray-400">(used by the AI analyst to calculate relevance score)</span>
-                            </label>
-                            <textarea
-                                value={companyProfile}
-                                onChange={(e) => setCompanyProfile(e.target.value)}
-                                rows={5}
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                                placeholder="Describe your company's services, expertise, and target contracts…"
-                            />
-                            <p className="text-xs text-gray-400 mt-1">
-                                Edit this text to match your real company — the AI analyst uses it to personalise the AI Score.
-                            </p>
-                        </div>
-                    )}
                 </div>
 
                 {/* Table filter bar */}
@@ -230,6 +251,21 @@ export default function App() {
                     pagination={pagination}
                     onPageChange={setPage}
                 />
+
+                {/* Footer actions */}
+                <footer className="mt-8 border-t border-gray-200 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <p className="text-xs text-gray-500">Need a full reimport? Delete all opportunities and worker runs, then trigger a new pipeline run.</p>
+                    <div className="flex items-center gap-3">
+                        {deleteError && <p className="text-xs text-red-600">{deleteError}</p>}
+                        <button
+                            onClick={handleDeleteAll}
+                            disabled={deletingAll || isRunning}
+                            className="px-4 py-2 text-sm font-semibold rounded-lg border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-60 transition"
+                        >
+                            {deletingAll ? 'Deleting...' : isRunning ? 'Stop Pipeline First' : 'Delete All'}
+                        </button>
+                    </div>
+                </footer>
             </main>
 
             {/* Detail modal */}
