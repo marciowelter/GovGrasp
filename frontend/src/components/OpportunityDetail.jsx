@@ -71,14 +71,17 @@ export default function OpportunityDetail({ opportunity, onClose }) {
                         </div>
                     )}
 
-                    {/* Key details */}
-                    <dl>
-                        <Row label="OCID" value={<span className="font-mono text-xs">{opportunity.ocid}</span>} />
-                        <Row label="Value" value={fmt(opportunity.value_amount, opportunity.value_currency)} />
-                        <Row label="Deadline" value={fmtDate(opportunity.deadline)} />
-                        <Row label="Published" value={fmtDate(opportunity.published_at)} />
-                        <Row label="Source" value={opportunity.source} />
-                    </dl>
+                                        {/* Key details */}
+                                        <dl>
+                                                <Row label="OCID" value={<span className="font-mono text-xs">{opportunity.ocid}</span>} />
+                                                <Row label="Value" value={fmt(opportunity.value_amount, opportunity.value_currency)} />
+                                                <Row label="Deadline" value={fmtDate(opportunity.deadline)} />
+                                                <Row label="Published" value={fmtDate(opportunity.published_at)} />
+                                                <Row label="Source" value={opportunity.source} />
+                                                {opportunity.location && (
+                                                    <Row label="Location" value={opportunity.location} />
+                                                )}
+                                        </dl>
 
                     {/* Description */}
                     {opportunity.description && (
