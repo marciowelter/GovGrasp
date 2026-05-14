@@ -11,7 +11,10 @@ return new class () extends Migration {
             return;
         }
 
-        DB::statement('ALTER TABLE opportunities ALTER COLUMN framework TYPE VARCHAR(500)');
+        // Só executa o ALTER COLUMN se não for SQLite
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement('ALTER TABLE opportunities ALTER COLUMN framework TYPE VARCHAR(500)');
+        }
     }
 
     public function down(): void
@@ -20,6 +23,9 @@ return new class () extends Migration {
             return;
         }
 
-        DB::statement('ALTER TABLE opportunities ALTER COLUMN framework TYPE VARCHAR(100)');
+        // Só executa o ALTER COLUMN se não for SQLite
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement('ALTER TABLE opportunities ALTER COLUMN framework TYPE VARCHAR(100)');
+        }
     }
 };

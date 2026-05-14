@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class WorkerRun extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'status',
         'opportunities_fetched',

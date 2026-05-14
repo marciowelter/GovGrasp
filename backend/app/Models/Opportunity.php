@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Opportunity extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'ocid',
         'title',
@@ -40,10 +42,11 @@ class Opportunity extends Model
 
     public function scopeSearch(Builder $query, string $term): Builder
     {
-        return $query->where(function (Builder $q) use ($term): void {
-            $q->where('title', 'ilike', "%{$term}%")
-                ->orWhere('buyer_name', 'ilike', "%{$term}%")
-                ->orWhere('description', 'ilike', "%{$term}%");
+        $likeOperator = $query->getConnection()->getDriverName() === 'sqlite' ? 'like' : 'ilike';
+        return $query->where(function (Builder $q) use ($term, $likeOperator): void {
+            $q->where('title', $likeOperator, "%{$term}%")
+                ->orWhere('buyer_name', $likeOperator, "%{$term}%")
+                ->orWhere('description', $likeOperator, "%{$term}%");
         });
     }
 }

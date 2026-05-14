@@ -32,15 +32,15 @@ jobs:
 
       - name: 📦 Install Dependencies
         run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
-        continue-on-error: true # Continue even if composer.json is not created yet
 
       - name: 🕵️ Static Analysis (PHPStan)
-        run: phpstan analyse app tests --level=5 || echo "Ignoring failure: PHPStan not configured yet."
+        run: phpstan analyse app tests --level=5 || echo "Ignoring failure PHPStan not configured yet."
 
       - name: 🧪 Run Tests (PHPUnit)
-        run: phpunit || echo "Ignoring failure: Tests not created yet."
+        run: phpunit || echo "Ignoring failure Tests not created yet."
 
   # ---------------------------------------------------
+
   # JOB 2: Worker Python (Open Claw) - SAST & Tests
   # ---------------------------------------------------
   test-python:
@@ -70,7 +70,7 @@ jobs:
         run: bandit -r . -ll -ii -f custom || echo "Ignoring initial Bandit failure."
 
       - name: 🧪 Run Tests (Pytest)
-        run: pytest || echo "Ignoring failure: Tests not created yet."
+        run: pytest || echo "Ignoring failure Tests not created yet."
 
   # ---------------------------------------------------
   # JOB 3: Dependency Security Scan (Trivy)

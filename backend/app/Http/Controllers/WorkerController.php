@@ -27,6 +27,13 @@ class WorkerController extends Controller
                     'reanalyse',
                 ]));
 
+            if ($response->status() >= 500) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Worker service error',
+                ], 503);
+            }
+
             return response()->json([
                 'status' => 'triggered',
                 'worker_response' => $response->json(),
@@ -43,6 +50,12 @@ class WorkerController extends Controller
     {
         try {
             $response = Http::timeout(5)->post("{$this->workerUrl}/abort");
+            if ($response->status() >= 500) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Worker service error',
+                ], 503);
+            }
             return response()->json([
                 'status' => 'ok',
                 'worker_response' => $response->json(),
