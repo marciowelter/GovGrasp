@@ -30,6 +30,64 @@ variable "container_image_worker" {
   type        = string
 }
 
+variable "use_external_ollama" {
+  description = "When true, worker uses an existing external Ollama host and no Ollama container is created in ECS."
+  type        = bool
+  default     = true
+}
+
+variable "external_ollama_host" {
+  description = "HTTP URL of an existing Ollama server (for example http://10.0.0.15:11434) used when use_external_ollama=true."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.use_external_ollama == false || trimspace(var.external_ollama_host) != ""
+    error_message = "Set external_ollama_host when use_external_ollama=true."
+  }
+}
+
+variable "external_ollama_port" {
+  description = "TCP port for the external Ollama host. Defaults to 11434."
+  type        = number
+  default     = 11434
+
+  validation {
+    condition     = var.external_ollama_port > 0 && var.external_ollama_port <= 65535
+    error_message = "external_ollama_port must be a valid TCP port between 1 and 65535."
+  }
+}
+
+variable "external_ollama_allowed_cidrs" {
+  description = "IPv4 CIDRs allowed as egress destination for external Ollama from ECS tasks (for example [\"10.0.0.50/32\"])."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = var.use_external_ollama == false || length(var.external_ollama_allowed_cidrs) > 0
+    error_message = "Set external_ollama_allowed_cidrs when use_external_ollama=true so ECS tasks can reach the external Ollama host."
+  }
+
+  validation {
+    condition = alltrue([
+      for cidr in var.external_ollama_allowed_cidrs : can(cidrhost(cidr, 0))
+    ])
+    error_message = "Each item in external_ollama_allowed_cidrs must be a valid IPv4 CIDR (for example 10.0.0.50/32)."
+  }
+}
+
+variable "ollama_container_image" {
+  description = "Docker image URI for the Ollama sidecar container when use_external_ollama=false."
+  type        = string
+  default     = "ollama/ollama:latest"
+}
+
+variable "llm_model" {
+  description = "Model name used by the worker (passed as LLM_MODEL)."
+  type        = string
+  default     = "llama3.2:1b"
+}
+
 variable "public_subnets" {
   description = "List of public subnets for the Application Load Balancer"
   type        = list(string)

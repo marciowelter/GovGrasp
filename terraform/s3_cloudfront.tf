@@ -240,7 +240,7 @@ resource "aws_scheduler_schedule" "worker_12h" {
       network_configuration {
         subnets          = var.private_subnets
         security_groups  = [aws_security_group.ecs_tasks_sg.id]
-        assign_public_ip = false
+        assign_public_ip = var.tasks_assign_public_ip
       }
     }
   }

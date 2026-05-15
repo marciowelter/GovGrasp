@@ -20,6 +20,12 @@ resource "aws_cloudwatch_log_group" "worker" {
   retention_in_days = 30
 }
 
+resource "aws_cloudwatch_log_group" "ollama" {
+  count             = var.use_external_ollama ? 0 : 1
+  name              = "/ecs/govgrasp-ollama"
+  retention_in_days = 30
+}
+
 # --- IAM Roles ---
 
 # 1. Execution Role: Used by the ECS Agent to pull images and fetch secrets
@@ -58,6 +64,71 @@ resource "aws_iam_role_policy" "ecs_exec_secrets" {
 }
 
 # --- Task Definitions ---
+
+locals {
+  worker_ollama_host = var.use_external_ollama ? var.external_ollama_host : "http://127.0.0.1:${var.external_ollama_port}"
+
+  worker_container_definitions = concat(
+    [
+      {
+        name      = "python-worker"
+        image     = var.container_image_worker
+        essential = true
+
+        environment = [
+          { name = "DB_HOST",            value = aws_db_instance.postgres.address },
+          { name = "DB_PORT",            value = "5432" },
+          { name = "DB_NAME",            value = var.db_name },
+          { name = "DB_USER",            value = var.db_username },
+          { name = "S3_BUCKET_DATA",     value = aws_s3_bucket.data.bucket },
+          { name = "AWS_DEFAULT_REGION", value = var.aws_region },
+          { name = "OLLAMA_HOST",        value = local.worker_ollama_host },
+          { name = "LLM_MODEL",          value = var.llm_model },
+        ]
+
+        secrets = [
+          {
+            name      = "DB_PASSWORD"
+            valueFrom = "${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::"
+          },
+          {
+            name      = "OPEN_CLAW_API_KEY"
+            valueFrom = "${aws_secretsmanager_secret.govgrasp_app_secrets.arn}:OPEN_CLAW_API_KEY::"
+          }
+        ]
+
+        logConfiguration = {
+          logDriver = "awslogs"
+          options = {
+            "awslogs-group"         = aws_cloudwatch_log_group.worker.name
+            "awslogs-region"        = var.aws_region
+            "awslogs-stream-prefix" = "ecs"
+          }
+        }
+      }
+    ],
+    var.use_external_ollama ? [] : [
+      {
+        name      = "ollama"
+        image     = var.ollama_container_image
+        essential = false
+
+        portMappings = [
+          { containerPort = var.external_ollama_port, hostPort = var.external_ollama_port, protocol = "tcp" }
+        ]
+
+        logConfiguration = {
+          logDriver = "awslogs"
+          options = {
+            "awslogs-group"         = aws_cloudwatch_log_group.ollama[0].name
+            "awslogs-region"        = var.aws_region
+            "awslogs-stream-prefix" = "ecs"
+          }
+        }
+      }
+    ]
+  )
+}
 
 # Laravel Backend Task
 resource "aws_ecs_task_definition" "backend" {
@@ -126,42 +197,7 @@ resource "aws_ecs_task_definition" "worker" {
   execution_role_arn       = aws_iam_role.ecs_exec_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
-  container_definitions = jsonencode([
-    {
-      name      = "python-worker"
-      image     = var.container_image_worker
-      essential = true
-
-      environment = [
-        { name = "DB_HOST",            value = aws_db_instance.postgres.address },
-        { name = "DB_PORT",            value = "5432" },
-        { name = "DB_NAME",            value = var.db_name },
-        { name = "DB_USER",            value = var.db_username },
-        { name = "S3_BUCKET_DATA",     value = aws_s3_bucket.data.bucket },
-        { name = "AWS_DEFAULT_REGION", value = var.aws_region },
-      ]
-
-      secrets = [
-        {
-          name      = "DB_PASSWORD"
-          valueFrom = "${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::"
-        },
-        {
-          name      = "OPEN_CLAW_API_KEY"
-          valueFrom = "${aws_secretsmanager_secret.govgrasp_app_secrets.arn}:OPEN_CLAW_API_KEY::"
-        }
-      ]
-
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.worker.name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "ecs"
-        }
-      }
-    }
-  ])
+  container_definitions = jsonencode(local.worker_container_definitions)
 }
 
 # --- Serviço ECS para o Backend (Laravel) ---

@@ -192,6 +192,40 @@ The script below creates the S3 state bucket, DynamoDB lock table, and runs `ter
 bash scripts/setup-aws.sh production
 ```
 
+To use an existing Ollama host (without creating an Ollama container in AWS), pass env vars in the same command:
+
+```bash
+USE_EXTERNAL_OLLAMA=true \
+EXTERNAL_OLLAMA_HOST="http://10.0.0.50:11434" \
+EXTERNAL_OLLAMA_ALLOWED_CIDRS='["10.0.0.50/32"]' \
+LLM_MODEL="llama3.2:1b" \
+bash scripts/setup-aws.sh production
+```
+
+Notes for external Ollama reachability:
+- The worker task route must reach the host (NAT or `tasks_assign_public_ip=true`, depending on your network).
+- ECS tasks SG now opens egress only to `external_ollama_allowed_cidrs` on `external_ollama_port` (default `11434`).
+- Your remote host firewall/security group must allow inbound TCP on that same port from the ECS task source range.
+
+To run an Ollama sidecar container in ECS instead:
+
+```bash
+USE_EXTERNAL_OLLAMA=false \
+OLLAMA_CONTAINER_IMAGE="ollama/ollama:latest" \
+LLM_MODEL="llama3.2:1b" \
+bash scripts/setup-aws.sh production
+```
+
+### One-command teardown (destroy + verification)
+
+To remove all AWS resources created by the GovGrasp Terraform stack and by `setup-aws.sh` (state bucket + lock table), run:
+
+```bash
+bash scripts/teardown-aws.sh production
+```
+
+Use `--auto-approve` for non-interactive teardown and `--var-file=...` / `--var=...` when your Terraform destroy needs explicit input variables.
+
 ### Manual Terraform deployment
 
 ```bash
@@ -202,6 +236,11 @@ export TF_VAR_private_subnets='["subnet-ccc","subnet-ddd"]'
 export TF_VAR_container_image_backend="<ecr-uri>/govgrasp-backend:latest"
 export TF_VAR_container_image_worker="<ecr-uri>/govgrasp-worker:latest"
 export TF_VAR_acm_certificate_arn="arn:aws:acm:eu-west-2:..."
+export TF_VAR_use_external_ollama=true
+export TF_VAR_external_ollama_host="http://10.0.0.50:11434"
+export TF_VAR_external_ollama_port=11434
+export TF_VAR_external_ollama_allowed_cidrs='["10.0.0.50/32"]'
+export TF_VAR_llm_model="llama3.2:1b"
 
 cd terraform
 terraform init

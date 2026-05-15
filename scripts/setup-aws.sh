@@ -5,6 +5,13 @@
 # Prerequisites: AWS CLI configured (aws configure) with appropriate permissions.
 # Usage: bash scripts/setup-aws.sh [environment]
 #        environment defaults to "production"
+# Optional env vars for Ollama mode:
+#   USE_EXTERNAL_OLLAMA=true
+#   EXTERNAL_OLLAMA_HOST=http://10.0.0.50:11434
+#   EXTERNAL_OLLAMA_PORT=11434
+#   EXTERNAL_OLLAMA_ALLOWED_CIDRS=["10.0.0.50/32"]
+#   OLLAMA_CONTAINER_IMAGE=ollama/ollama:latest
+#   LLM_MODEL=llama3.2:1b
 # =============================================================================
 set -euo pipefail
 
@@ -110,6 +117,36 @@ patch_terraform_backend() {
 # 4. Run Terraform
 # --------------------------------------------------------------------------
 run_terraform() {
+  local tf_var_args=()
+  local inferred_ollama_port=""
+
+  if [[ -z "${EXTERNAL_OLLAMA_PORT:-}" ]] && [[ -n "${EXTERNAL_OLLAMA_HOST:-}" ]]; then
+    if [[ "${EXTERNAL_OLLAMA_HOST}" =~ :([0-9]{1,5})(/.*)?$ ]]; then
+      inferred_ollama_port="${BASH_REMATCH[1]}"
+    fi
+  fi
+
+  if [[ -n "${USE_EXTERNAL_OLLAMA:-}" ]]; then
+    tf_var_args+=("-var=use_external_ollama=${USE_EXTERNAL_OLLAMA}")
+  fi
+  if [[ -n "${EXTERNAL_OLLAMA_HOST:-}" ]]; then
+    tf_var_args+=("-var=external_ollama_host=${EXTERNAL_OLLAMA_HOST}")
+  fi
+  if [[ -n "${EXTERNAL_OLLAMA_PORT:-}" ]]; then
+    tf_var_args+=("-var=external_ollama_port=${EXTERNAL_OLLAMA_PORT}")
+  elif [[ -n "$inferred_ollama_port" ]]; then
+    tf_var_args+=("-var=external_ollama_port=${inferred_ollama_port}")
+  fi
+  if [[ -n "${EXTERNAL_OLLAMA_ALLOWED_CIDRS:-}" ]]; then
+    tf_var_args+=("-var=external_ollama_allowed_cidrs=${EXTERNAL_OLLAMA_ALLOWED_CIDRS}")
+  fi
+  if [[ -n "${OLLAMA_CONTAINER_IMAGE:-}" ]]; then
+    tf_var_args+=("-var=ollama_container_image=${OLLAMA_CONTAINER_IMAGE}")
+  fi
+  if [[ -n "${LLM_MODEL:-}" ]]; then
+    tf_var_args+=("-var=llm_model=${LLM_MODEL}")
+  fi
+
   info "Initialising Terraform (migrating state to S3)..."
   cd "$REPO_ROOT/terraform"
   terraform init -reconfigure \
@@ -121,7 +158,7 @@ run_terraform() {
   terraform validate
 
   info "Running Terraform plan..."
-  terraform plan -var="environment=$ENVIRONMENT" -out=tfplan
+  terraform plan -var="environment=$ENVIRONMENT" "${tf_var_args[@]}" -out=tfplan
 
   echo ""
   read -r -p "$(echo -e "${YELLOW}Apply the plan above? [y/N]:${NC} ")" confirm

@@ -26,6 +26,15 @@ resource "aws_security_group" "rds_sg" {
   tags = { Name = "govgrasp-${var.environment}-rds-sg" }
 }
 
+resource "aws_vpc_security_group_egress_rule" "ecs_tasks_to_rds_postgres" {
+  security_group_id            = aws_security_group.ecs_tasks_sg.id
+  description                  = "Allow ECS tasks to connect to RDS PostgreSQL"
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  referenced_security_group_id = aws_security_group.rds_sg.id
+}
+
 # DB Subnet Group — must span at least 2 AZs (uses the existing private subnets)
 resource "aws_db_subnet_group" "main" {
   name        = "govgrasp-${var.environment}-db-subnet-group"

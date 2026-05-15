@@ -171,6 +171,14 @@ install_trivy() {
 # --------------------------------------------------------------------------
 # 7. Install TFLint
 # --------------------------------------------------------------------------
+detect_arch() {
+  case "$(uname -m)" in
+    x86_64 | amd64) echo "amd64" ;;
+    aarch64 | arm64) echo "arm64" ;;
+    *) return 1 ;;
+  esac
+}
+
 install_tflint() {
   if command -v tflint &>/dev/null; then
     success "TFLint already installed: $(tflint --version | head -1)"
@@ -178,10 +186,31 @@ install_tflint() {
   fi
 
   info "Installing TFLint..."
-  TFLINT_VER=$(curl -s https://api.github.com/repos/terraform-linters/tflint/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-  curl -sLo /tmp/tflint.zip "https://github.com/terraform-linters/tflint/releases/download/${TFLINT_VER}/tflint_linux_amd64.zip"
-  sudo unzip -q /tmp/tflint.zip -d /usr/local/bin/
-  rm /tmp/tflint.zip
+  local arch platform archive_name download_url temp_zip
+  arch=$(detect_arch) || error "Unsupported CPU architecture for TFLint: $(uname -m)"
+
+  case "$OS" in
+    debian | rhel) platform="linux" ;;
+    macos)          platform="darwin" ;;
+    *) error "Unsupported OS for TFLint installation: $OS" ;;
+  esac
+
+  archive_name="tflint_${platform}_${arch}.zip"
+  download_url="https://github.com/terraform-linters/tflint/releases/latest/download/${archive_name}"
+  temp_zip=$(mktemp /tmp/tflint.XXXXXX.zip)
+
+  if ! curl -fLsS -o "$temp_zip" "$download_url"; then
+    rm -f "$temp_zip"
+    error "Failed to download TFLint from ${download_url}"
+  fi
+
+  if ! unzip -tq "$temp_zip" >/dev/null 2>&1; then
+    rm -f "$temp_zip"
+    error "Downloaded TFLint archive is invalid. Check network access to GitHub releases and retry."
+  fi
+
+  sudo unzip -qo "$temp_zip" -d /usr/local/bin/
+  rm -f "$temp_zip"
   success "TFLint installed: $(tflint --version | head -1)"
 }
 
@@ -414,6 +443,16 @@ acm_certificate_arn = ""
 
 container_image_backend = "${backend_image}"
 container_image_worker  = "${worker_image}"
+
+# Ollama mode for worker
+# true  -> use an existing Ollama host (no ECS Ollama container)
+# false -> run an Ollama sidecar container in the worker task
+use_external_ollama = true
+external_ollama_host = "http://REPLACE_WITH_YOUR_OLLAMA_HOST:11434"
+external_ollama_port = 11434
+external_ollama_allowed_cidrs = ["REPLACE_WITH_OLLAMA_HOST_IP/32"]
+ollama_container_image = "ollama/ollama:latest"
+llm_model = "llama3.2:1b"
 
 db_instance_class = "db.t3.micro"
 db_name           = "govgrasp"

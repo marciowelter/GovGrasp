@@ -39,13 +39,47 @@ resource "aws_security_group" "ecs_tasks_sg" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_sg.id]
   }
+}
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+# ECS tasks need outbound HTTPS for AWS APIs/ECR/CloudWatch/S3
+resource "aws_vpc_security_group_egress_rule" "ecs_tasks_https_any" {
+  security_group_id = aws_security_group.ecs_tasks_sg.id
+  description       = "Allow outbound HTTPS from ECS tasks"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+# DNS is required for external host resolution and AWS endpoints lookup
+resource "aws_vpc_security_group_egress_rule" "ecs_tasks_dns_udp_any" {
+  security_group_id = aws_security_group.ecs_tasks_sg.id
+  description       = "Allow outbound DNS (UDP) from ECS tasks"
+  ip_protocol       = "udp"
+  from_port         = 53
+  to_port           = 53
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ecs_tasks_dns_tcp_any" {
+  security_group_id = aws_security_group.ecs_tasks_sg.id
+  description       = "Allow outbound DNS (TCP) from ECS tasks"
+  ip_protocol       = "tcp"
+  from_port         = 53
+  to_port           = 53
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+# Explicit rule to reach external Ollama host and configured port
+resource "aws_vpc_security_group_egress_rule" "ecs_tasks_external_ollama" {
+  for_each = var.use_external_ollama ? toset(var.external_ollama_allowed_cidrs) : toset([])
+
+  security_group_id = aws_security_group.ecs_tasks_sg.id
+  description       = "Allow outbound traffic to external Ollama endpoint"
+  ip_protocol       = "tcp"
+  from_port         = var.external_ollama_port
+  to_port           = var.external_ollama_port
+  cidr_ipv4         = each.value
 }
 
 # 2. Application Load Balancer
